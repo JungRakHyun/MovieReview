@@ -221,7 +221,7 @@ export default function MovieReviewApp() {
     return (
       <div className="w-full h-[100dvh] bg-[#0B1120] flex flex-col items-center justify-center select-none animate-fade-in">
         <Film className="text-blue-500 mb-5 animate-pulse" size={64} />
-        <h1 className="text-white font-extrabold text-3xl tracking-tight leading-tight mb-2">MOVIE LOUNGE</h1>
+        <h1 className="text-white font-extrabold text-3xl tracking-tight leading-tight mb-2">Movie Review</h1>
         <p className="text-slate-400 text-xs font-bold tracking-widest">영화 리뷰 통합 생태계</p>
       </div>
     );
@@ -240,7 +240,7 @@ export default function MovieReviewApp() {
       <header className="w-full max-w-md bg-[#0F172A] border-b border-slate-800 p-4 flex justify-between items-center z-10 shadow-lg shrink-0">
         <div className="flex items-center gap-3">
           <div className="bg-blue-600/20 p-2 rounded-lg"><Film className="text-blue-500" size={22} /></div>
-          <div><h1 className="text-white font-extrabold text-lg tracking-tight leading-tight">MOVIE LOUNGE</h1><p className="text-slate-400 text-[10px] mt-0.5">실관람객 별점 평가</p></div>
+          <div><h1 className="text-white font-extrabold text-lg tracking-tight leading-tight">Movie Review</h1><p className="text-slate-400 text-[10px] mt-0.5">실관람객 별점 평가</p></div>
         </div>
         <div>
           {user ? (
