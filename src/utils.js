@@ -1,6 +1,6 @@
 export const getAvgRating = (reviews) => {
   if (!reviews || reviews.length === 0) return "0.0";
-  const sum = reviews.reduce((acc, r) => acc + (Number(r.rating) || 0), 0);
+  const sum = reviews.reduce((acc, review) => acc + (Number(review.rating) || 0), 0);
   return (sum / reviews.length).toFixed(1);
 };
 
@@ -27,5 +27,5 @@ export const getUserBadge = (reviewCount) => {
   if (reviewCount >= 10) return { icon: "PRO", text: "전문 리뷰어", color: "text-amber-700 bg-amber-100" };
   if (reviewCount >= 5) return { icon: "HOT", text: "활동 리뷰어", color: "text-orange-700 bg-orange-100" };
   if (reviewCount >= 1) return { icon: "NEW", text: "영화 팬", color: "text-blue-700 bg-blue-100" };
-  return { icon: "START", text: "새 관객", color: "text-emerald-700 bg-emerald-100" };
+  return { icon: "START", text: "첫 관람객", color: "text-emerald-700 bg-emerald-100" };
 };

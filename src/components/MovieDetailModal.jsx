@@ -5,11 +5,14 @@ import { doc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { formatDate } from '../utils';
 import ReportModal from './ReportModal';
 
+const reviewTagOptions = ['연기', '스토리', '영상미', '음악', '몰입감', '여운'];
+
 export default function MovieDetailModal({ movie, user, onClose, showToast, onSimilarMovieClick }) {
   const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY;
   
   const [reviewText, setReviewText] = useState("");
   const [rating, setRating] = useState(5);
+  const [selectedReviewTags, setSelectedReviewTags] = useState([]);
   const [isKeyboardActive, setIsKeyboardActive] = useState(false);
   const [reportModalReview, setReportModalReview] = useState(null);
 
@@ -229,10 +232,10 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
     if (!reviewText.trim()) return showToast("리뷰 내용을 입력해주세요.", "error");
     try {
       // 💡 리뷰 객체에 isSpoiler 필드 포함하여 저장
-      const newReview = { rating, comment: reviewText, timestamp: new Date().toISOString(), userName: user.displayName || "익명", uid: user.uid, likes: 0, likedUsers: [], replies: [], isSpoiler };
+      const newReview = { rating, comment: reviewText, timestamp: new Date().toISOString(), userName: user.displayName || "익명", uid: user.uid, likes: 0, likedUsers: [], replies: [], isSpoiler, tags: selectedReviewTags };
       const updatedReviews = [...(movie.reviews || []), newReview];
       await setDoc(doc(db, "movies", movie.id), { title: movie.title, release_date: movie.release_date || '', poster_path: movie.poster_path || '', reviews: arrayUnion(newReview) }, { merge: true });
-      setReviewText(""); setRating(5); setIsSpoiler(false); setIsKeyboardActive(false); showToast("소중한 리뷰가 등록되었습니다.");
+      setReviewText(""); setRating(5); setSelectedReviewTags([]); setIsSpoiler(false); setIsKeyboardActive(false); showToast("리뷰가 등록되었습니다.");
       await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("리뷰 등록 실패", "error"); }
   };
@@ -347,7 +350,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
       <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 backdrop-blur-sm transition-opacity duration-300">
         <div className={`w-full max-w-md bg-white rounded-t-3xl shadow-2xl flex flex-col transition-all duration-300 ease-in-out ${isKeyboardActive ? 'h-[95dvh] rounded-none' : 'h-[90dvh]'}`}>
           <div className="p-4 pb-3 border-b border-slate-100 shrink-0 flex justify-between items-center bg-white rounded-t-3xl">
-            <h2 className="text-base font-bold text-slate-900 ml-1">영화 상세 정보</h2>
+            <h2 className="text-base font-extrabold text-slate-900 ml-1">영화 상세 정보</h2>
             <div className="flex items-center gap-2">
               <button onClick={toggleBookmark} className={`p-1.5 rounded-full transition-colors ${isBookmarked ? 'bg-pink-50 text-pink-500' : 'bg-slate-50 hover:bg-pink-50 hover:text-pink-500 text-slate-500'}`}>
                 <Heart size={18} className={isBookmarked ? 'fill-pink-500' : ''} />
@@ -358,41 +361,57 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
           </div>
 
           <div className="flex-1 overflow-y-auto px-5 custom-scrollbar pb-4 animate-fade-in">
-            <div className="bg-slate-50 p-4 rounded-xl mt-3 mb-4 border border-slate-100 flex gap-4">
+            <div className="bg-white p-4 rounded-2xl mt-3 mb-4 border border-slate-200 shadow-sm">
+              <div className="flex gap-4">
               {movie.poster_path ? (
-                <img src={`https://image.tmdb.org/t/p/w200${movie.poster_path}`} alt={movie.title} className="w-24 h-36 object-cover rounded-lg shadow-md shrink-0" />
+                <img src={`https://image.tmdb.org/t/p/w200${movie.poster_path}`} alt={movie.title} className="w-24 h-36 object-cover rounded-xl shadow-md shrink-0" />
               ) : (
-                <div className="w-24 h-36 bg-slate-200 rounded-lg flex items-center justify-center shrink-0"><Film className="text-slate-400" size={32}/></div>
+                <div className="w-24 h-36 bg-slate-100 rounded-xl flex items-center justify-center shrink-0 border border-slate-200"><Film className="text-slate-400" size={32}/></div>
               )}
               <div className="flex-1 overflow-hidden">
-                <p className="text-[11px] font-semibold text-slate-500 mb-1">개봉일: {movie.release_date || '미정'}</p>
+                <p className="text-[11px] font-bold text-blue-600 mb-1">{movie.release_date || '개봉일 미정'}</p>
                 <p className="text-lg font-extrabold text-slate-800 leading-tight mb-2">{movie.title}</p>
                 <p className="text-xs text-slate-600 line-clamp-2 leading-snug mb-2">{movie.overview || '등록된 줄거리가 없습니다.'}</p>
-                
+
                 <div className="flex flex-wrap items-center gap-2 mt-1.5">
                   {trailerKey && (
                     <button 
                       onClick={() => setShowTrailer(true)}
-                      className="flex items-center gap-1 bg-red-50 text-red-600 px-2.5 py-1 rounded-lg text-[10px] font-bold hover:bg-red-100 transition-colors w-fit shadow-sm"
+                      className="flex items-center gap-1 bg-red-50 text-red-600 px-2.5 py-1 rounded-lg text-[10px] font-bold hover:bg-red-100 transition-colors w-fit"
                     >
                       <Play size={12} /> 예고편
                     </button>
                   )}
                 </div>
               </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 mt-4">
+                <div className="rounded-xl bg-slate-50 border border-slate-100 px-2.5 py-2">
+                  <p className="text-[9px] font-extrabold text-slate-400 mb-1">사용자 평점</p>
+                  <p className="flex items-center gap-1 text-sm font-extrabold text-slate-900"><Star size={14} className="fill-amber-400 text-amber-400" /> {avgUserRating || '0.0'}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 border border-slate-100 px-2.5 py-2">
+                  <p className="text-[9px] font-extrabold text-slate-400 mb-1">리뷰</p>
+                  <p className="flex items-center gap-1 text-sm font-extrabold text-slate-900"><MessageSquare size={14} /> {reviews.length}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 border border-slate-100 px-2.5 py-2">
+                  <p className="text-[9px] font-extrabold text-slate-400 mb-1">컬렉션</p>
+                  <p className="flex items-center gap-1 text-sm font-extrabold text-slate-900"><Heart size={14} /> {bookmarkedUsers.length + watchedUsers.length + favoriteUsers.length}</p>
+                </div>
+              </div>
             </div>
 
-            {/* OTT 스트리밍 영역 */}
             <div className="grid grid-cols-3 gap-2 mb-4">
-              <button onClick={toggleBookmark} className={`py-2 rounded-xl border text-[10px] font-extrabold flex flex-col items-center gap-1 ${isBookmarked ? 'bg-pink-50 border-pink-200 text-pink-600' : 'bg-white border-slate-200 text-slate-500'}`}>
+              <button onClick={toggleBookmark} className={`py-2.5 rounded-xl border text-[10px] font-extrabold flex flex-col items-center gap-1 transition-colors ${isBookmarked ? 'bg-pink-50 border-pink-200 text-pink-600' : 'bg-white border-slate-200 text-slate-500 hover:border-pink-200 hover:text-pink-600'}`}>
                 <Heart size={16} className={isBookmarked ? 'fill-pink-500' : ''} />
                 보고 싶어요
               </button>
-              <button onClick={() => toggleCollection('watchedUsers', watchedUsers, '봤어요에 추가했습니다.', '봤어요에서 제거했습니다.')} className={`py-2 rounded-xl border text-[10px] font-extrabold flex flex-col items-center gap-1 ${isWatched ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-200 text-slate-500'}`}>
+              <button onClick={() => toggleCollection('watchedUsers', watchedUsers, '봤어요에 추가했습니다.', '봤어요에서 제거했습니다.')} className={`py-2.5 rounded-xl border text-[10px] font-extrabold flex flex-col items-center gap-1 transition-colors ${isWatched ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-200 text-slate-500 hover:border-blue-200 hover:text-blue-600'}`}>
                 <Eye size={16} />
                 봤어요
               </button>
-              <button onClick={() => toggleCollection('favoriteUsers', favoriteUsers, '인생 영화에 추가했습니다.', '인생 영화에서 제거했습니다.')} className={`py-2 rounded-xl border text-[10px] font-extrabold flex flex-col items-center gap-1 ${isFavorite ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-white border-slate-200 text-slate-500'}`}>
+              <button onClick={() => toggleCollection('favoriteUsers', favoriteUsers, '인생 영화에 추가했습니다.', '인생 영화에서 제거했습니다.')} className={`py-2.5 rounded-xl border text-[10px] font-extrabold flex flex-col items-center gap-1 transition-colors ${isFavorite ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-white border-slate-200 text-slate-500 hover:border-amber-200 hover:text-amber-600'}`}>
                 <BookmarkCheck size={16} />
                 인생 영화
               </button>
@@ -611,6 +630,14 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                             <p className="text-[13px] text-slate-700 mb-3 leading-snug whitespace-pre-wrap">{rev.comment}</p>
                           )
                         )}
+
+                        {(rev.tags || []).length > 0 && !isEditing && (
+                          <div className="flex flex-wrap gap-1 mb-3">
+                            {rev.tags.map(tag => (
+                              <span key={tag} className="rounded-md bg-indigo-50 px-2 py-1 text-[9px] font-extrabold text-indigo-600">#{tag}</span>
+                            ))}
+                          </div>
+                        )}
                         
                         <div className="flex gap-3 justify-end border-t border-slate-50 pt-2 mt-1">
                           <button onClick={() => handleLikeReview(rev)} className={`flex items-center gap-1 text-[10px] font-bold transition-colors ${isReviewLiked ? 'text-blue-600' : 'text-slate-400 hover:text-blue-500'}`}>
@@ -724,6 +751,28 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                     />
                     <span className="text-[11px] font-extrabold text-slate-500">스포일러 포함</span>
                   </label>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 mb-2 px-1">
+                  {reviewTagOptions.map(tag => {
+                    const isSelected = selectedReviewTags.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => {
+                          setSelectedReviewTags(prev => (
+                            prev.includes(tag)
+                              ? prev.filter(item => item !== tag)
+                              : prev.length >= 3 ? prev : [...prev, tag]
+                          ));
+                        }}
+                        className={`rounded-full border px-2.5 py-1 text-[10px] font-extrabold transition-colors ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-200 hover:text-indigo-600'}`}
+                      >
+                        #{tag}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <div className="relative">
