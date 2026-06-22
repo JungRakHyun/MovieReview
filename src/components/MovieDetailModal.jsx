@@ -32,6 +32,10 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
   const [providers, setProviders] = useState([]);
   const [tmdbWatchLink, setTmdbWatchLink] = useState("");
 
+  // 💡 스포일러 관련 상태 추가
+  const [isSpoiler, setIsSpoiler] = useState(false); // 리뷰 작성 시 체크 여부
+  const [revealedSpoilers, setRevealedSpoilers] = useState({}); // 열람한 스포일러 리뷰 리스트 tracking
+
   useEffect(() => {
     // 1. 출연진 정보
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/credits?api_key=${TMDB_API_KEY}&language=ko-KR`)
@@ -76,32 +80,6 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
       }).catch(e => console.error(e));
 
   }, [movie.id, TMDB_API_KEY]);
-
-  // 💡 AI 자동 분석 엔진 (리뷰 기반 요약 생성 함수)
-  const updateAISummaryIfNeeded = async (currentReviews) => {
-    const validReviews = currentReviews.filter(r => r && r.comment);
-    if (validReviews.length >= 1) {
-      const ACTUAL_GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY; 
-      if (!ACTUAL_GEMINI_API_KEY) return;
-      const prompt = `다음은 영화 '${movie.title}'에 대한 관람객들의 리뷰입니다. 이 리뷰들의 공통적인 내용과 반응을 3줄로 객관적으로 요약해주세요:\n\n${validReviews.map(r => r.comment).join("\n")}`;
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${ACTUAL_GEMINI_API_KEY}`, { 
-          method: "POST", 
-          headers: { "Content-Type": "application/json" }, 
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) 
-        });
-        const data = await res.json();
-        if (res.ok && data.candidates?.length > 0) {
-          await updateDoc(doc(db, "movies", movie.id), { ai_summary: data.candidates[0].content.parts[0].text });
-        }
-      } catch (error) {
-        console.error("AI 요약 생성 실패:", error);
-      }
-    } else {
-      // 리뷰가 2개 미만으로 떨어지면 기존 AI 요약 초기화
-      await updateDoc(doc(db, "movies", movie.id), { ai_summary: "" });
-    }
-  };
 
   const handleOttClick = (e, providerName, movieTitle) => {
     e.preventDefault();
@@ -208,12 +186,10 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
     if (!user) return showToast("리뷰를 작성하려면 먼저 로그인해주세요.", "error");
     if (!reviewText.trim()) return showToast("리뷰 내용을 입력해주세요.", "error");
     try {
-      const newReview = { rating, comment: reviewText, timestamp: new Date().toISOString(), userName: user.displayName || "익명", uid: user.uid, likes: 0, likedUsers: [], replies: [] };
-      const updatedReviews = [...(movie.reviews || []), newReview];
+      // 💡 리뷰 객체에 isSpoiler 필드 포함하여 저장
+      const newReview = { rating, comment: reviewText, timestamp: new Date().toISOString(), userName: user.displayName || "익명", uid: user.uid, likes: 0, likedUsers: [], replies: [], isSpoiler };
       await setDoc(doc(db, "movies", movie.id), { title: movie.title, release_date: movie.release_date || '', poster_path: movie.poster_path || '', reviews: arrayUnion(newReview) }, { merge: true });
-      setReviewText(""); setRating(5); setIsKeyboardActive(false); showToast("소중한 리뷰가 등록되었습니다.");
-      // 💡 리뷰 작성 후 AI 요약 업데이트 실행
-      await updateAISummaryIfNeeded(updatedReviews);
+      setReviewText(""); setRating(5); setIsSpoiler(false); setIsKeyboardActive(false); showToast("소중한 리뷰가 등록되었습니다.");
     } catch (e) { showToast("리뷰 등록 실패", "error"); }
   };
 
@@ -222,13 +198,11 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
     try {
       const updatedReviews = (movie.reviews || []).map(r => {
         if (!r) return r;
-        if (r.uid === rev.uid && r.timestamp === rev.timestamp) return { ...r, comment: editingReview.text, rating: editingReview.rating, isEdited: true };
+        if (r.uid === rev.uid && r.timestamp === rev.timestamp) return { ...r, comment: editingReview.text, rating: editingReview.rating, isEdited: true, isSpoiler: editingReview.isSpoiler };
         return r;
       });
       await updateDoc(doc(db, "movies", movie.id), { reviews: updatedReviews });
       setEditingReview(null); setIsKeyboardActive(false); showToast("리뷰가 수정되었습니다.");
-      // 💡 리뷰 수정 후 AI 요약 업데이트 실행
-      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("수정 실패", "error"); }
   };
 
@@ -238,8 +212,6 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
       const updatedReviews = (movie.reviews || []).filter(r => r && (r.timestamp !== rev.timestamp || r.uid !== rev.uid));
       await updateDoc(doc(db, "movies", movie.id), { reviews: updatedReviews });
       showToast("리뷰가 삭제되었습니다.");
-      // 💡 리뷰 삭제 후 AI 요약 업데이트 실행
-      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("삭제 실패", "error"); }
   };
 
@@ -445,7 +417,6 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
               </div>
             )}
 
-            {/* 💡 실시간 생성 연동된 AI 요약 컴포넌트 */}
             {movie.ai_summary && (
               <div className="bg-indigo-50/50 border border-indigo-100 p-4 rounded-xl mb-4">
                 <p className="text-[12px] font-bold text-indigo-800 flex items-center gap-1 mb-2"><Bot size={14}/> 리뷰 기반 AI 요약</p>
@@ -479,6 +450,10 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                     const isMyReview = user?.uid === rev.uid;
                     const isEditing = editingReview?.timestamp === rev.timestamp;
                     const isReplying = replyingTo === rev.timestamp;
+                    
+                    // 스포일러 고유 키 생성
+                    const reviewKey = `${rev.uid}-${rev.timestamp}`;
+                    const isRevealed = revealedSpoilers[reviewKey];
 
                     return (
                       <div key={idx} className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm">
@@ -492,7 +467,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                             <span className="text-[9px] text-slate-400 font-medium">{formatDate(rev.timestamp)} {rev.isEdited && '(수정됨)'}</span>
                             {isMyReview && !isEditing && (
                               <div className="flex items-center gap-1.5">
-                                <button onClick={() => setEditingReview({ timestamp: rev.timestamp, text: rev.comment || '', rating: rev.rating || 5 })} className="text-slate-400 hover:text-blue-500"><Edit2 size={12} /></button>
+                                <button onClick={() => setEditingReview({ timestamp: rev.timestamp, text: rev.comment || '', rating: rev.rating || 5, isSpoiler: rev.isSpoiler || false })} className="text-slate-400 hover:text-blue-500"><Edit2 size={12} /></button>
                                 <button onClick={() => handleDeleteReview(rev)} className="text-slate-400 hover:text-red-500"><Trash2 size={12} /></button>
                               </div>
                             )}
@@ -501,26 +476,35 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
 
                         {isEditing ? (
                           <div className="mt-2 mb-2 relative bg-blue-50/30 p-2 rounded-lg border border-blue-200">
-                            <div className="flex items-center gap-1 mb-2 pl-1">
-                              <span className="text-[10px] font-bold text-slate-500 mr-1">별점 수정:</span>
-                              <div className="flex items-center">
-                                {[1, 2, 3, 4, 5].map((star) => {
-                                  const isFull = star <= editingReview.rating;
-                                  const isHalf = star - 0.5 === editingReview.rating;
-                                  return (
-                                    <div key={star} className="p-1 cursor-pointer" onClick={(e) => {
-                                        const rect = e.currentTarget.getBoundingClientRect();
-                                        setEditingReview({ ...editingReview, rating: e.clientX - rect.left < rect.width / 2 ? star - 0.5 : star });
-                                      }}>
-                                      <div className="relative">
-                                        <Star size={14} className="text-slate-200 fill-slate-50" />
-                                        {(isFull || isHalf) && (<div className="absolute top-0 left-0 overflow-hidden pointer-events-none" style={{ width: isHalf ? '50%' : '100%' }}><Star size={14} className="fill-amber-400 text-amber-400" /></div>)}
+                            <div className="flex items-center justify-between mb-2 px-1">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] font-bold text-slate-500 mr-1">별점 수정:</span>
+                                <div className="flex items-center">
+                                  {[1, 2, 3, 4, 5].map((star) => {
+                                    const isFull = star <= editingReview.rating;
+                                    const isHalf = star - 0.5 === editingReview.rating;
+                                    return (
+                                      <div key={star} className="p-0.5 cursor-pointer" onClick={(e) => {
+                                          const rect = e.currentTarget.getBoundingClientRect();
+                                          setEditingReview({ ...editingReview, rating: e.clientX - rect.left < rect.width / 2 ? star - 0.5 : star });
+                                        }}>
+                                        <div className="relative">
+                                          <Star size={14} className="text-slate-200 fill-slate-50" />
+                                          {(isFull || isHalf) && (
+                                            <div className="absolute top-0 left-0 overflow-hidden pointer-events-none" style={{ width: isHalf ? '50%' : '100%' }}><Star size={14} className="fill-amber-400 text-amber-400" /></div>
+                                          )}
+                                        </div>
                                       </div>
-                                    </div>
-                                  );
-                                })}
+                                    );
+                                  })}
+                                </div>
+                                <span className="text-[10px] font-bold text-amber-500 ml-1">{editingReview.rating}</span>
                               </div>
-                              <span className="text-[10px] font-bold text-amber-500 ml-1">{editingReview.rating}</span>
+                              {/* 수정 창 스포일러 토글 */}
+                              <label className="flex items-center gap-1 cursor-pointer select-none">
+                                <input type="checkbox" checked={editingReview.isSpoiler || false} onChange={(e) => setEditingReview({ ...editingReview, isSpoiler: e.target.checked })} className="w-3 h-3 text-blue-600 rounded" />
+                                <span className="text-[10px] font-bold text-slate-500">스포일러 포함</span>
+                              </label>
                             </div>
                             <textarea className="w-full p-2 border border-slate-200 rounded-lg text-[12px] bg-white outline-none resize-none" rows="2" value={editingReview?.text || ''} onChange={(e) => setEditingReview({ ...editingReview, text: e.target.value })} onFocus={() => setIsKeyboardActive(true)} onBlur={() => setIsKeyboardActive(false)} />
                             <div className="flex justify-end gap-2 mt-2">
@@ -528,7 +512,19 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                               <button onClick={() => submitEditReview(rev)} className="text-[10px] text-white px-2 py-1 bg-blue-600 rounded-md font-bold">수정 완료</button>
                             </div>
                           </div>
-                        ) : (<p className="text-[13px] text-slate-700 mb-3 leading-snug">{rev.comment}</p>)}
+                        ) : (
+                          // 💡 렌더링 시 스포일러 블러 연동 처리
+                          rev.isSpoiler && !isRevealed ? (
+                            <div 
+                              onClick={() => setRevealedSpoilers(prev => ({ ...prev, [reviewKey]: true }))}
+                              className="bg-slate-50 hover:bg-red-50/50 text-slate-500 hover:text-red-600 text-xs font-bold py-3 px-4 rounded-xl text-center cursor-pointer transition-colors my-2 border border-dashed border-slate-300 animate-pulse"
+                            >
+                              ⚠️ 스포일러가 포함된 관람평입니다. (탭하여 보기)
+                            </div>
+                          ) : (
+                            <p className="text-[13px] text-slate-700 mb-3 leading-snug whitespace-pre-wrap">{rev.comment}</p>
+                          )
+                        )}
                         
                         <div className="flex gap-3 justify-end border-t border-slate-50 pt-2 mt-1">
                           <button onClick={() => handleLikeReview(rev)} className={`flex items-center gap-1 text-[10px] font-bold transition-colors ${isReviewLiked ? 'text-blue-600' : 'text-slate-400 hover:text-blue-500'}`}>
@@ -609,27 +605,41 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
               <div className="flex flex-col items-center justify-center p-3 bg-slate-50 rounded-xl border border-slate-200"><p className="text-[13px] font-bold text-slate-600 mb-2">리뷰를 작성하려면 로그인이 필요합니다.</p></div>
             ) : (
               <>
-                <div className="flex items-center gap-1 mb-2 px-1">
-                  <span className="text-[11px] font-bold text-slate-500 mr-2">별점:</span>
-                  <div className="flex items-center">
-                    {[1, 2, 3, 4, 5].map((star) => {
-                      const isFull = star <= rating;
-                      const isHalf = star - 0.5 === rating;
-                      return (
-                        <div key={star} className="p-1 cursor-pointer transition-transform hover:scale-110 active:scale-95" onClick={(e) => {
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            setRating(e.clientX - rect.left < rect.width / 2 ? star - 0.5 : star);
-                          }}>
-                          <div className="relative">
-                            <Star size={20} className="text-slate-200 fill-slate-50 drop-shadow-sm" />
-                            {(isFull || isHalf) && (<div className="absolute top-0 left-0 overflow-hidden pointer-events-none" style={{ width: isHalf ? '50%' : '100%' }}><Star size={20} className="fill-amber-400 text-amber-400 drop-shadow-sm" /></div>)}
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[11px] font-bold text-slate-500 mr-2">별점:</span>
+                    <div className="flex items-center">
+                      {[1, 2, 3, 4, 5].map((star) => {
+                        const isFull = star <= rating;
+                        const isHalf = star - 0.5 === rating;
+                        return (
+                          <div key={star} className="p-1 cursor-pointer transition-transform hover:scale-110 active:scale-95" onClick={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setRating(e.clientX - rect.left < rect.width / 2 ? star - 0.5 : star);
+                            }}>
+                            <div className="relative">
+                              <Star size={20} className="text-slate-200 fill-slate-50 drop-shadow-sm" />
+                              {(isFull || isHalf) && (<div className="absolute top-0 left-0 overflow-hidden pointer-events-none" style={{ width: isHalf ? '50%' : '100%' }}><Star size={20} className="fill-amber-400 text-amber-400 drop-shadow-sm" /></div>)}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
+                    <span className="text-xs font-bold text-amber-500 ml-1">{rating}</span>
                   </div>
-                  <span className="text-xs font-bold text-amber-500 ml-1">{rating}</span>
+
+                  {/* 💡 신규 작성 창 스포일러 토글 체크박스 UI 추가 */}
+                  <label className="flex items-center gap-1 cursor-pointer select-none">
+                    <input 
+                      type="checkbox" 
+                      checked={isSpoiler} 
+                      onChange={(e) => setIsSpoiler(e.target.checked)} 
+                      className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500" 
+                    />
+                    <span className="text-[11px] font-extrabold text-slate-500">스포일러 포함</span>
+                  </label>
                 </div>
+
                 <div className="relative">
                   <textarea
                     className="w-full p-3 pr-12 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none resize-none text-[13px] bg-slate-50 transition-all"
