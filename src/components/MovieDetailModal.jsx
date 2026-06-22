@@ -33,12 +33,15 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
   const [tmdbWatchLink, setTmdbWatchLink] = useState("");
 
   useEffect(() => {
+    // 1. 출연진 정보
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/credits?api_key=${TMDB_API_KEY}&language=ko-KR`)
       .then(res => res.json()).then(data => { if (data.cast) setCast(data.cast.slice(0, 10)); }).catch(e => console.error(e));
 
+    // 2. 시리즈 및 추천 영화
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/recommendations?api_key=${TMDB_API_KEY}&language=ko-KR&page=1`)
       .then(res => res.json()).then(data => { if (data.results) setSimilarMovies(data.results.slice(0, 10)); }).catch(e => console.error(e));
 
+    // 3. 예고편 정보
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/videos?api_key=${TMDB_API_KEY}&language=ko-KR`)
       .then(res => res.json())
       .then(data => {
@@ -55,6 +58,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
         }
       }).catch(e => console.error(e));
 
+    // 4. OTT 플랫폼 정보
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/watch/providers?api_key=${TMDB_API_KEY}`)
       .then(res => res.json())
       .then(data => {
@@ -73,21 +77,57 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
 
   }, [movie.id, TMDB_API_KEY]);
 
-  // 💡 OTT 플랫폼별 다이렉트 검색 링크 생성 우회 함수
-  const getDirectOttLink = (providerName, movieTitle) => {
+  // 💡 OTT 클릭 시 스마트폰 앱(Deep Link)으로 강제 이동시키는 함수
+  const handleOttClick = (e, providerName, movieTitle) => {
+    e.preventDefault();
     const encodedTitle = encodeURIComponent(movieTitle);
     const name = providerName.toLowerCase();
     
-    if (name.includes('netflix')) return `https://www.netflix.com/search?q=${encodedTitle}`;
-    if (name.includes('wavve')) return `https://www.wavve.com/search/search?searchWord=${encodedTitle}`;
-    if (name.includes('watcha')) return `https://watcha.com/search?query=${encodedTitle}`;
-    if (name.includes('tving')) return `https://www.tving.com/search?keyword=${encodedTitle}`;
-    if (name.includes('coupang')) return `https://www.coupangplay.com/search?q=${encodedTitle}`;
-    if (name.includes('naver')) return `https://serieson.naver.com/v3/search?query=${encodedTitle}`;
-    if (name.includes('disney')) return `https://www.disneyplus.com/ko-kr/search`; // 디즈니는 다이렉트 검색어가 안먹혀서 메인 검색창으로 
-    
-    // 매핑되지 않은 다른 OTT나 해외 플랫폼은 원래 TMDB/JustWatch 링크로 보냅니다.
-    return tmdbWatchLink || "#"; 
+    const isAndroid = /android/i.test(navigator.userAgent);
+    const isIOS = /ipad|iphone|ipod/i.test(navigator.userAgent);
+
+    let webUrl = tmdbWatchLink;
+    let appScheme = "";
+    let androidPackage = "";
+
+    if (name.includes('netflix')) {
+      webUrl = `https://www.netflix.com/search?q=${encodedTitle}`;
+      appScheme = `nflx://www.netflix.com/search?q=${encodedTitle}`;
+      androidPackage = "com.netflix.mediaclient";
+    } else if (name.includes('wavve')) {
+      webUrl = `https://www.wavve.com/search/search?searchWord=${encodedTitle}`;
+      appScheme = `wavve://search?searchWord=${encodedTitle}`;
+      androidPackage = "kr.co.captv.pooqV2";
+    } else if (name.includes('watcha')) {
+      webUrl = `https://watcha.com/search?query=${encodedTitle}`;
+      appScheme = `watcha://search?query=${encodedTitle}`;
+      androidPackage = "com.frograms.watcha";
+    } else if (name.includes('tving')) {
+      webUrl = `https://www.tving.com/search?keyword=${encodedTitle}`;
+      appScheme = `tving://search?keyword=${encodedTitle}`;
+      androidPackage = "net.cj.cjenm.tving";
+    } else if (name.includes('coupang')) {
+      webUrl = `https://www.coupangplay.com/search?q=${encodedTitle}`;
+      appScheme = `coupangplay://search?q=${encodedTitle}`;
+      androidPackage = "com.coupang.mobile.play";
+    } else if (name.includes('disney')) {
+      webUrl = `https://www.disneyplus.com/ko-kr/search`;
+      appScheme = `disneyplus://`;
+      androidPackage = "com.disney.disneyplus";
+    } else {
+      window.open(tmdbWatchLink || "#", '_blank');
+      return;
+    }
+
+    if (isAndroid) {
+      const intentUrl = `intent://${appScheme.split('://')[1] || ''}#Intent;scheme=${appScheme.split('://')[0]};package=${androidPackage};S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+      window.location.href = intentUrl;
+    } else if (isIOS) {
+      window.location.href = appScheme;
+      setTimeout(() => { window.location.href = webUrl; }, 1500);
+    } else {
+      window.open(webUrl, '_blank');
+    }
   };
 
   const handlePersonClick = (person) => {
@@ -291,7 +331,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
               </div>
             </div>
 
-            {/* 업그레이드된 OTT 스트리밍 영역 */}
+            {/* 💡 업그레이드된 다이렉트 딥링크 OTT 스트리밍 영역 */}
             {providers.length > 0 && (
               <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-3.5 mb-5 shadow-sm">
                 <div className="flex justify-between items-center mb-2.5">
@@ -309,12 +349,10 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                 </div>
                 <div className="flex gap-3 overflow-x-auto custom-scrollbar pb-1.5">
                   {providers.map((p, idx) => (
-                    <a 
+                    <div 
                       key={`${p.provider_id}-${idx}`}
-                      href={getDirectOttLink(p.provider_name, movie.title)} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="flex flex-col items-center shrink-0 w-14 group relative"
+                      onClick={(e) => handleOttClick(e, p.provider_name, movie.title)} 
+                      className="flex flex-col items-center shrink-0 w-14 group relative cursor-pointer"
                     >
                       <div className="relative">
                         <img 
@@ -329,7 +367,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                       <p className="text-[9px] font-bold text-slate-600 text-center line-clamp-1 w-full mt-1.5 group-hover:text-blue-600 transition-colors">
                         {p.provider_name}
                       </p>
-                    </a>
+                    </div>
                   ))}
                 </div>
               </div>
