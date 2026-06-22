@@ -33,12 +33,15 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
   const [tmdbWatchLink, setTmdbWatchLink] = useState("");
 
   useEffect(() => {
+    // 1. 출연진 정보
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/credits?api_key=${TMDB_API_KEY}&language=ko-KR`)
       .then(res => res.json()).then(data => { if (data.cast) setCast(data.cast.slice(0, 10)); }).catch(e => console.error(e));
 
+    // 2. 시리즈 및 추천 영화
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/recommendations?api_key=${TMDB_API_KEY}&language=ko-KR&page=1`)
       .then(res => res.json()).then(data => { if (data.results) setSimilarMovies(data.results.slice(0, 10)); }).catch(e => console.error(e));
 
+    // 3. 예고편 정보
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/videos?api_key=${TMDB_API_KEY}&language=ko-KR`)
       .then(res => res.json())
       .then(data => {
@@ -55,6 +58,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
         }
       }).catch(e => console.error(e));
 
+    // 4. OTT 플랫폼 정보
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/watch/providers?api_key=${TMDB_API_KEY}`)
       .then(res => res.json())
       .then(data => {
@@ -73,7 +77,32 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
 
   }, [movie.id, TMDB_API_KEY]);
 
-  // 💡 모바일 브라우저별 딥링크 처리 로직 최적화
+  // 💡 AI 자동 분석 엔진 (리뷰 기반 요약 생성 함수)
+  const updateAISummaryIfNeeded = async (currentReviews) => {
+    const validReviews = currentReviews.filter(r => r && r.comment);
+    if (validReviews.length >= 1) {
+      const ACTUAL_GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY; 
+      if (!ACTUAL_GEMINI_API_KEY) return;
+      const prompt = `다음은 영화 '${movie.title}'에 대한 관람객들의 리뷰입니다. 이 리뷰들의 공통적인 내용과 반응을 3줄로 객관적으로 요약해주세요:\n\n${validReviews.map(r => r.comment).join("\n")}`;
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${ACTUAL_GEMINI_API_KEY}`, { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) 
+        });
+        const data = await res.json();
+        if (res.ok && data.candidates?.length > 0) {
+          await updateDoc(doc(db, "movies", movie.id), { ai_summary: data.candidates[0].content.parts[0].text });
+        }
+      } catch (error) {
+        console.error("AI 요약 생성 실패:", error);
+      }
+    } else {
+      // 리뷰가 2개 미만으로 떨어지면 기존 AI 요약 초기화
+      await updateDoc(doc(db, "movies", movie.id), { ai_summary: "" });
+    }
+  };
+
   const handleOttClick = (e, providerName, movieTitle) => {
     e.preventDefault();
     const encodedTitle = encodeURIComponent(movieTitle);
@@ -116,13 +145,11 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
     }
 
     if (isAndroid) {
-      // 안드로이드 표준 인텐트 조합 필터링 최적화
       const cleanSchemePath = appScheme.includes('://') ? appScheme.split('://')[1] : '';
       const schemeProto = appScheme.split('://')[0];
       const intentUrl = `intent://${cleanSchemePath}#Intent;scheme=${schemeProto};package=${androidPackage};S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
       window.location.href = intentUrl;
     } else if (isIOS) {
-      // iOS 타이머 기법 롤백 처리
       window.location.href = appScheme;
       setTimeout(() => { window.location.href = webUrl; }, 1500);
     } else {
@@ -182,8 +209,11 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
     if (!reviewText.trim()) return showToast("리뷰 내용을 입력해주세요.", "error");
     try {
       const newReview = { rating, comment: reviewText, timestamp: new Date().toISOString(), userName: user.displayName || "익명", uid: user.uid, likes: 0, likedUsers: [], replies: [] };
+      const updatedReviews = [...(movie.reviews || []), newReview];
       await setDoc(doc(db, "movies", movie.id), { title: movie.title, release_date: movie.release_date || '', poster_path: movie.poster_path || '', reviews: arrayUnion(newReview) }, { merge: true });
       setReviewText(""); setRating(5); setIsKeyboardActive(false); showToast("소중한 리뷰가 등록되었습니다.");
+      // 💡 리뷰 작성 후 AI 요약 업데이트 실행
+      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("리뷰 등록 실패", "error"); }
   };
 
@@ -197,6 +227,8 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
       });
       await updateDoc(doc(db, "movies", movie.id), { reviews: updatedReviews });
       setEditingReview(null); setIsKeyboardActive(false); showToast("리뷰가 수정되었습니다.");
+      // 💡 리뷰 수정 후 AI 요약 업데이트 실행
+      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("수정 실패", "error"); }
   };
 
@@ -206,6 +238,8 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
       const updatedReviews = (movie.reviews || []).filter(r => r && (r.timestamp !== rev.timestamp || r.uid !== rev.uid));
       await updateDoc(doc(db, "movies", movie.id), { reviews: updatedReviews });
       showToast("리뷰가 삭제되었습니다.");
+      // 💡 리뷰 삭제 후 AI 요약 업데이트 실행
+      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("삭제 실패", "error"); }
   };
 
@@ -411,6 +445,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
               </div>
             )}
 
+            {/* 💡 실시간 생성 연동된 AI 요약 컴포넌트 */}
             {movie.ai_summary && (
               <div className="bg-indigo-50/50 border border-indigo-100 p-4 rounded-xl mb-4">
                 <p className="text-[12px] font-bold text-indigo-800 flex items-center gap-1 mb-2"><Bot size={14}/> 리뷰 기반 AI 요약</p>
