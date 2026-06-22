@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { Share2, X, Bot, Star, ThumbsUp, Flag, MessageSquare, Heart, Edit2, Trash2, CornerDownRight, Send, Film, User, Play, ExternalLink, Eye, BookmarkCheck } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
@@ -487,15 +486,30 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
             )}
 
             <h3 className="text-[13px] font-bold text-slate-700 mb-2 px-1 mt-6">실관람객 평점 분포</h3>
-            <div className="h-32 w-full mb-3" style={{ minHeight: '128px' }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={chartData} innerRadius={30} outerRadius={55} paddingAngle={3} dataKey="value" stroke="none">
-                    {chartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
-                  </Pie>
-                  <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} itemStyle={{ fontWeight: 'bold', fontSize: '11px' }} />
-                </PieChart>
-              </ResponsiveContainer>
+            <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 mb-3">
+              {[5, 4, 3, 2, 1].map((score) => {
+                const count = reviews.filter(review => Math.min(5, Math.max(1, Math.round(Number(review.rating) || 0))) === score).length;
+                const maxCount = Math.max(1, ...[5, 4, 3, 2, 1].map(item => reviews.filter(review => Math.min(5, Math.max(1, Math.round(Number(review.rating) || 0))) === item).length));
+                return (
+                  <div key={score} className="flex items-center gap-2 mb-2 last:mb-0">
+                    <div className="w-10 flex items-center gap-0.5 text-[11px] font-extrabold text-slate-600">
+                      {score}<Star size={10} className="fill-amber-400 text-amber-400" />
+                    </div>
+                    <div className="flex-1 h-3 bg-white rounded-full overflow-hidden border border-slate-200">
+                      <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${(count / maxCount) * 100}%` }} />
+                    </div>
+                    <span className="w-8 text-right text-[11px] font-bold text-slate-500">{count}</span>
+                  </div>
+                );
+              })}
+              <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-200">
+                {chartData.map(item => (
+                  <div key={item.name} className="text-center">
+                    <p className="text-[10px] font-bold text-slate-400">{item.name}</p>
+                    <p className="text-sm font-extrabold" style={{ color: item.color }}>{item.value}</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="mb-2">
@@ -752,7 +766,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
               ) : (
                 <div className="grid grid-cols-3 gap-3">
                   {personMovies.map(m => (
-                    <div key={m.id} className="flex flex-col items-center">
+                    <div key={m.id} onClick={() => { setSelectedPerson(null); onSimilarMovieClick && onSimilarMovieClick(m); }} className="flex flex-col items-center cursor-pointer hover:opacity-75 transition-opacity">
                       {m.poster_path ? <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} className="w-full h-32 object-cover rounded-lg shadow-sm mb-1.5 border border-slate-200" /> : <div className="w-full h-32 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200 mb-1.5 text-slate-300"><Film size={24}/></div>}
                       <p className="text-[11px] font-extrabold text-slate-700 text-center line-clamp-1 w-full">{m.title}</p>
                       <p className="text-[9px] text-slate-400 text-center">{m.release_date?.split('-')[0] || '미정'}</p>

@@ -1,0 +1,350 @@
+MovieReview 프로젝트 명세서
+===========================
+
+1. 프로젝트 개요
+----------------
+MovieReview는 React/Vite 기반의 영화 리뷰 PWA입니다.
+
+사용자는 TMDB 영화 데이터를 기반으로 영화를 탐색하고 검색할 수 있으며,
+Google 로그인 후 영화별 리뷰 작성, 별점 평가, 리뷰 공감, 댓글, 스포일러 표시,
+신고, 찜, 개인 영화 컬렉션 관리 등을 사용할 수 있습니다.
+
+화면은 모바일 앱 형태의 좁은 뷰포트를 중심으로 구성되어 있습니다.
+
+
+2. 기술 스택
+------------
+- React 19
+- Vite
+- Tailwind CSS v4
+- Firebase Authentication
+- Firestore
+- TMDB API
+- Gemini API
+- vite-plugin-pwa
+- lucide-react
+- Recharts
+
+
+3. 주요 실행 명령어
+-------------------
+의존성 설치:
+  npm install
+
+개발 서버 실행:
+  npm run dev
+
+프로덕션 빌드:
+  npm run build
+
+ESLint 검사:
+  npm run lint
+
+프로덕션 빌드 미리보기:
+  npm run preview
+
+
+4. 환경 변수
+------------
+Vite 환경 변수는 브라우저 번들에 포함됩니다.
+
+필수:
+  VITE_TMDB_API_KEY
+    TMDB API 키입니다.
+    영화 목록, 검색, 상세 정보, 출연진, 예고편, 추천 영화, OTT 제공자 조회에 사용됩니다.
+
+선택:
+  VITE_GEMINI_API_KEY
+    Gemini API 키입니다.
+    리뷰 기반 AI 요약 생성에 사용됩니다.
+
+  VITE_ADMIN_EMAILS
+    관리자 이메일 목록입니다.
+    쉼표로 여러 계정을 구분합니다.
+
+    예:
+      VITE_ADMIN_EMAILS=admin@example.com,owner@example.com
+
+주의:
+  VITE_로 시작하는 값은 프론트엔드 번들에 노출됩니다.
+  운영 환경에서는 Gemini 호출을 Firebase Cloud Functions 또는 별도 서버 API로 옮기는 것이 좋습니다.
+
+
+5. 주요 파일 구조
+-----------------
+index.html
+  앱의 루트 HTML입니다.
+  localhost 또는 127.0.0.1에서는 기존 서비스워커를 해제합니다.
+  배포 환경에서는 /sw.js를 등록합니다.
+
+src/main.jsx
+  React 진입점입니다.
+  App.jsx를 #root에 렌더링합니다.
+
+src/App.jsx
+  앱의 메인 셸입니다.
+  인증, 탭 이동, Firestore 구독, 홈, 검색, 랭킹, 마이페이지, 관리자 신고 화면,
+  영화 상세 모달 열기를 담당합니다.
+
+src/components/MovieDetailModal.jsx
+  영화 상세 모달입니다.
+  영화 상세 정보, 리뷰, 댓글, 공감, 스포일러, 컬렉션 토글, 예고편, 출연진,
+  추천 영화, OTT 제공자, AI 요약 갱신을 처리합니다.
+
+src/components/ReportModal.jsx
+  리뷰 신고 모달입니다.
+  신고 내용을 Firestore reports 컬렉션에 저장합니다.
+
+src/firebase.js
+  Firebase 앱, Firestore, Auth, Google 로그인 Provider 설정 파일입니다.
+
+src/utils.js
+  별점 계산, 영화 활동 점수 계산, 날짜 포맷, 사용자 배지 계산 등 공통 유틸입니다.
+
+
+6. 화면 및 탭 구성
+------------------
+홈 탭:
+  - TMDB discover/movie API를 사용합니다.
+  - 장르 필터를 지원합니다.
+  - 정렬 옵션을 지원합니다.
+    - popularity.desc
+    - primary_release_date.desc
+    - vote_average.desc
+  - 더보기 버튼으로 페이지를 추가 로드합니다.
+
+검색 탭:
+  - 영화 제목 검색을 지원합니다.
+  - 장르 필터와 연도 필터를 지원합니다.
+  - 검색어가 없고 필터만 있을 경우 TMDB discover/movie API를 사용합니다.
+
+랭킹 탭:
+  - Firestore에 저장된 사용자 활동 데이터를 기반으로 랭킹을 계산합니다.
+  - 활동 급상승 영화
+  - 사용자 평점 높은 영화
+  - 공감 많은 리뷰를 표시합니다.
+
+마이페이지 탭:
+  - 로그인이 필요합니다.
+  - Google 프로필 정보를 표시합니다.
+  - 사용자 배지를 표시합니다.
+  - 리뷰 수, 평균 별점, 컬렉션 수를 표시합니다.
+  - 컬렉션을 표시합니다.
+    - 보고 싶은 영화
+    - 봤어요
+    - 인생 영화
+  - 사용자가 작성한 리뷰 목록을 표시합니다.
+
+관리자 탭:
+  - 로그인한 사용자의 이메일이 VITE_ADMIN_EMAILS에 포함되어 있을 때만 하단 메뉴에 표시됩니다.
+  - Firestore reports 컬렉션의 신고 목록을 표시합니다.
+  - 신고 상태를 변경할 수 있습니다.
+    - 접수됨
+    - 검토중
+    - 처리완료
+
+
+7. 인증
+-------
+Firebase Authentication의 Google 로그인을 사용합니다.
+
+주요 파일:
+  src/firebase.js
+  src/App.jsx
+
+주요 함수:
+  handleLogin()
+    Google 로그인 팝업을 엽니다.
+
+  handleLogout()
+    현재 사용자를 로그아웃하고 홈 탭으로 이동합니다.
+
+
+8. Firestore 데이터 구조
+------------------------
+Firestore 데이터베이스:
+  getFirestore(app, "testweb")
+
+컬렉션:
+
+movies
+  문서 ID:
+    TMDB 영화 ID를 문자열로 사용합니다.
+
+  주요 필드:
+    title: string
+    release_date: string
+    poster_path: string
+    ai_summary: string
+    bookmarkedUsers: string[]
+    watchedUsers: string[]
+    favoriteUsers: string[]
+    reviews: Review[]
+
+  Review 객체:
+    rating: number
+    comment: string
+    timestamp: ISO string
+    userName: string
+    uid: string
+    likes: number
+    likedUsers: string[]
+    replies: Reply[]
+    isSpoiler: boolean
+    isEdited?: boolean
+
+  Reply 객체:
+    uid: string
+    userName: string
+    text: string
+    timestamp: ISO string
+    isEdited?: boolean
+
+reports
+  문서 ID:
+    Firestore 자동 ID입니다.
+
+  주요 필드:
+    userId: string
+    movieId: string
+    reviewTimestamp: string
+    reviewComment: string
+    category: string
+    reason: string
+    reportedAt: ISO string
+    status: string
+    updatedAt?: ISO string
+
+
+9. 외부 API
+-----------
+TMDB 사용 엔드포인트:
+  /discover/movie
+  /search/movie
+  /movie/{movieId}/credits
+  /movie/{movieId}/recommendations
+  /movie/{movieId}/videos
+  /movie/{movieId}/watch/providers
+  /person/{personId}/movie_credits
+
+Gemini 사용 엔드포인트:
+  generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
+
+
+10. 영화 상세 기능
+------------------
+영화 상세 모달은 다음 기능을 지원합니다.
+
+- 포스터, 개봉일, 제목, 줄거리 표시
+- YouTube 예고편 모달
+- OTT 제공자 바로가기
+- 출연진 표시
+- 배우 필모그래피 모달
+- 추천 영화 표시
+- 사용자 별점 분포 차트
+- AI 리뷰 요약
+- 리뷰 작성
+- 리뷰 수정/삭제
+- 리뷰 공감/공감 취소
+- 댓글 작성
+- 댓글 수정/삭제
+- 리뷰 스포일러 표시
+- 스포일러 리뷰 클릭 후 보기
+- 리뷰 정렬
+  - 최신순
+  - 별점순
+  - 공감순
+- 스포일러 제외 필터
+- 컬렉션 토글
+  - 보고 싶은 영화: bookmarkedUsers
+  - 봤어요: watchedUsers
+  - 인생 영화: favoriteUsers
+
+
+11. 랭킹 점수 계산
+------------------
+랭킹은 Firestore의 movies 문서를 클라이언트에서 계산합니다.
+
+활동 점수:
+  리뷰 수 * 3
+  + 찜 수
+  + 봤어요 수
+  + 인생 영화 수 * 2
+
+관련 함수:
+  getMovieActivityScore(movie)
+
+
+12. PWA 동작
+------------
+vite-plugin-pwa를 사용합니다.
+
+Manifest 파일:
+  public/manifest.json
+
+아이콘 경로:
+  icon.png
+
+서비스워커 동작:
+  - 로컬 개발 환경:
+    기존 서비스워커를 해제합니다.
+  - 배포 환경:
+    /sw.js를 등록합니다.
+
+
+13. 현재 빌드 경고
+------------------
+현재 npm run build는 성공하지만 다음 경고가 남을 수 있습니다.
+
+1. CSS import 순서 경고
+   src/index.css에서 Tailwind import가 외부 Pretendard 폰트 import보다 먼저 있습니다.
+   이 순서를 바꿨을 때 UI가 깨진 적이 있어 현재 순서를 유지합니다.
+
+2. 큰 JS 번들 경고
+   App.jsx와 MovieDetailModal.jsx에 많은 기능이 들어 있어 초기 번들이 큽니다.
+   추후 React lazy loading으로 분리하는 것이 좋습니다.
+
+
+14. 알려진 위험 요소와 한계
+---------------------------
+- 기존 한글 UI 문자열 중 깨진 문자열이 아직 많이 남아 있습니다.
+- 리뷰가 영화 문서 내부 배열에 저장됩니다.
+  간단한 구조지만 다음 문제가 생길 수 있습니다.
+    - Firestore 문서 크기 제한
+    - 동시 수정 충돌
+    - 부분 업데이트 어려움
+- 관리자 탭 노출은 프론트엔드의 VITE_ADMIN_EMAILS 기준입니다.
+  실제 보안은 반드시 Firestore Rules에서 강제해야 합니다.
+- Gemini API 키를 프론트엔드에서 직접 사용하면 키가 노출됩니다.
+- TMDB/Gemini 네트워크 오류 처리가 아직 단순합니다.
+- 자동화 테스트가 없습니다.
+
+
+15. 권장 TODO
+-------------
+우선순위 높음:
+  1. 깨진 한글 UI 문자열 전체 복구
+  2. Firestore Security Rules 작성
+     - 영화 문서 쓰기
+     - 리뷰 소유자 수정/삭제
+     - 신고 작성
+     - 관리자 전용 신고 상태 변경
+  3. Gemini 요약 생성을 서버 또는 Firebase Cloud Functions로 이동
+  4. .env에 VITE_ADMIN_EMAILS 설정
+
+우선순위 중간:
+  5. MovieDetailModal을 React lazy loading으로 분리
+  6. TMDB API 호출을 별도 service 모듈로 분리
+  7. Firestore 리뷰/컬렉션/신고 로직을 별도 service 모듈로 분리
+  8. 리뷰 저장 구조를 하위 컬렉션으로 변경
+     movies/{movieId}/reviews/{reviewId}
+  9. TMDB/Gemini 요청별 로딩/에러 상태 보강
+  10. 긴 리뷰 목록에 페이지네이션 또는 가상 스크롤 적용
+
+우선순위 낮음:
+  11. 다른 사용자 프로필 페이지 추가
+  12. 팔로우/팔로워 및 활동 피드 추가
+  13. 리뷰 검색 추가
+  14. 연도별/월별 감상 통계 추가
+  15. 유틸 및 Firestore 업데이트 로직 테스트 추가
+

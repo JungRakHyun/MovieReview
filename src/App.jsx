@@ -263,7 +263,7 @@ export default function MovieReviewApp() {
   if (showSplash || isAuthLoading) {
     return (
       <div className="w-full h-[100dvh] bg-[#0B1120] flex flex-col items-center justify-center select-none animate-fade-in">
-        <Film className="text-blue-500 mb-5 animate-pulse" size={64} />
+        <img src="/icon.png" alt="Movie Review" className="w-20 h-20 object-contain mb-5 animate-pulse" />
         <h1 className="text-white font-extrabold text-3xl tracking-tight leading-tight mb-2">Movie Review</h1>
       </div>
     );
@@ -280,8 +280,8 @@ export default function MovieReviewApp() {
 
       <header className="w-full max-w-md bg-[#0F172A] border-b border-slate-800 p-4 flex justify-between items-center z-10 shadow-lg shrink-0">
         <div className="flex items-center gap-3">
-          <div className="bg-blue-600/20 p-2 rounded-lg"><Film className="text-blue-500" size={22} /></div>
-          <div><h1 className="text-white font-extrabold text-lg tracking-tight leading-tight">Movie Review v1.01</h1><p className="text-slate-400 text-[10px] mt-0.5">실관람객 별점 평가</p></div>
+          <div className="bg-blue-600/20 p-1.5 rounded-lg"><img src="/icon.png" alt="Movie Review" className="w-7 h-7 object-contain" /></div>
+          <div><h1 className="text-white font-extrabold text-lg tracking-tight leading-tight">Movie Review v1.04</h1><p className="text-slate-400 text-[10px] mt-0.5">실관람객 별점 평가</p></div>
         </div>
         <div>{user ? <button onClick={handleLogout} className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-slate-700 shadow-sm"><img src={user.photoURL} alt="profile" className="w-5 h-5 rounded-full" /> 로그아웃</button> : <button onClick={handleLogin} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-full text-xs font-bold transition shadow-md"><LogIn size={14} /> 로그인</button>}</div>
       </header>

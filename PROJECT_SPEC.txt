@@ -1,0 +1,353 @@
+MovieReview Project Specification
+=================================
+
+1. Project Overview
+-------------------
+MovieReview is a React/Vite based movie review PWA.
+
+The app lets users browse and search movies from TMDB, sign in with Google,
+write reviews, rate movies, like reviews, reply to reviews, mark spoilers,
+bookmark movies, manage personal movie collections, and report inappropriate
+reviews.
+
+The application is designed primarily for a mobile-sized viewport.
+
+
+2. Tech Stack
+-------------
+- React 19
+- Vite
+- Tailwind CSS v4
+- Firebase Authentication
+- Firestore
+- TMDB API
+- Gemini API
+- vite-plugin-pwa
+- lucide-react
+- Recharts
+
+
+3. Main Commands
+----------------
+Install dependencies:
+  npm install
+
+Run local development server:
+  npm run dev
+
+Build production bundle:
+  npm run build
+
+Run ESLint:
+  npm run lint
+
+Preview production build:
+  npm run preview
+
+
+4. Environment Variables
+------------------------
+The app reads the following Vite environment variables.
+
+Required:
+  VITE_TMDB_API_KEY
+    TMDB API key used for movie discovery, search, detail, credits, videos,
+    recommendations, and watch provider lookups.
+
+Optional:
+  VITE_GEMINI_API_KEY
+    Gemini API key used to generate AI review summaries.
+
+  VITE_ADMIN_EMAILS
+    Comma-separated admin email list.
+    Example:
+      VITE_ADMIN_EMAILS=admin@example.com,owner@example.com
+
+Important:
+  VITE_* values are exposed to the browser bundle.
+  For production, Gemini calls should ideally be moved to a server endpoint or
+  Firebase Cloud Functions.
+
+
+5. Application Entry Points
+---------------------------
+index.html
+  Root HTML document.
+  Registers service worker only outside localhost/127.0.0.1.
+  In local development, it unregisters existing service workers to avoid stale
+  PWA cache issues.
+
+src/main.jsx
+  React entry point.
+  Renders App.jsx into #root.
+
+src/App.jsx
+  Main application shell.
+  Handles authentication, tab navigation, Firestore subscriptions, movie list
+  browsing, search, ranking, my page, admin report management, and opening the
+  movie detail modal.
+
+src/components/MovieDetailModal.jsx
+  Movie detail modal.
+  Handles movie detail content, reviews, replies, likes, spoiler controls,
+  collection toggles, trailer, cast, recommended movies, watch providers, and
+  AI summary updates.
+
+src/components/ReportModal.jsx
+  Review report modal.
+  Writes report documents to Firestore.
+
+src/firebase.js
+  Firebase app, Firestore, Auth, and Google provider setup.
+
+src/utils.js
+  Shared helpers for rating, movie activity score, date formatting, and user
+  badges.
+
+
+6. Main Screens and Tabs
+------------------------
+Home tab:
+  - Fetches TMDB discover/movie.
+  - Supports genre filter.
+  - Supports sort options:
+    - popularity.desc
+    - primary_release_date.desc
+    - vote_average.desc
+  - Supports pagination through "load more".
+
+Search tab:
+  - Supports title search through TMDB search/movie.
+  - Supports genre and year filters.
+  - If title is empty but filters exist, uses TMDB discover/movie.
+
+Ranking tab:
+  - Shows activity ranking based on internal Firestore data.
+  - Shows top user-rated movies.
+  - Shows most-liked reviews.
+
+My Page tab:
+  - Requires login.
+  - Shows Google profile info.
+  - Shows user badge.
+  - Shows review count, average rating, and collection count.
+  - Shows collections:
+    - Want to watch
+    - Watched
+    - Favorite movies
+  - Shows current user's review list.
+
+Admin tab:
+  - Visible only if the logged-in user's email is included in
+    VITE_ADMIN_EMAILS.
+  - Shows reports from Firestore.
+  - Allows status updates:
+    - 접수됨
+    - 검토중
+    - 처리완료
+
+
+7. Authentication
+-----------------
+Authentication is handled through Firebase Auth with Google Sign-In.
+
+Important files:
+  src/firebase.js
+  src/App.jsx
+
+Main functions:
+  handleLogin()
+    Opens Google sign-in popup.
+
+  handleLogout()
+    Signs out current user and returns to home tab.
+
+
+8. Firestore Structure
+----------------------
+Database:
+  getFirestore(app, "testweb")
+
+Collections:
+
+movies
+  Document ID:
+    TMDB movie ID as string.
+
+  Example fields:
+    title: string
+    release_date: string
+    poster_path: string
+    ai_summary: string
+    bookmarkedUsers: string[]
+    watchedUsers: string[]
+    favoriteUsers: string[]
+    reviews: Review[]
+
+  Review object:
+    rating: number
+    comment: string
+    timestamp: ISO string
+    userName: string
+    uid: string
+    likes: number
+    likedUsers: string[]
+    replies: Reply[]
+    isSpoiler: boolean
+    isEdited?: boolean
+
+  Reply object:
+    uid: string
+    userName: string
+    text: string
+    timestamp: ISO string
+    isEdited?: boolean
+
+reports
+  Document ID:
+    Firestore auto ID.
+
+  Example fields:
+    userId: string
+    movieId: string
+    reviewTimestamp: string
+    reviewComment: string
+    category: string
+    reason: string
+    reportedAt: ISO string
+    status: string
+    updatedAt?: ISO string
+
+
+9. External APIs
+----------------
+TMDB endpoints used:
+  /discover/movie
+  /search/movie
+  /movie/{movieId}/credits
+  /movie/{movieId}/recommendations
+  /movie/{movieId}/videos
+  /movie/{movieId}/watch/providers
+  /person/{personId}/movie_credits
+
+Gemini endpoint used:
+  generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
+
+
+10. Movie Detail Features
+-------------------------
+The detail modal currently supports:
+  - Poster, release date, title, overview
+  - Trailer modal through YouTube iframe
+  - OTT provider shortcuts
+  - Cast list and actor filmography modal
+  - Recommended movies
+  - User rating distribution chart
+  - AI review summary
+  - Review creation
+  - Review edit/delete
+  - Review like/unlike
+  - Replies
+  - Reply edit/delete
+  - Spoiler flag on review
+  - Spoiler reveal
+  - Review sorting:
+    - latest
+    - rating
+    - likes
+  - Spoiler exclusion filter
+  - Collection toggles:
+    - bookmarkedUsers
+    - watchedUsers
+    - favoriteUsers
+
+
+11. Ranking Score
+-----------------
+Ranking uses client-side calculation from Firestore movie documents.
+
+Activity score:
+  reviewCount * 3
+  + bookmarkCount
+  + watchedCount
+  + favoriteCount * 2
+
+Helper:
+  getMovieActivityScore(movie)
+
+
+12. PWA Behavior
+----------------
+vite-plugin-pwa is enabled in vite.config.js.
+
+Manifest:
+  public/manifest.json
+
+Icon path:
+  icon.png
+
+Service worker behavior:
+  - Local development:
+    existing service workers are unregistered.
+  - Non-local environments:
+    /sw.js is registered.
+
+
+13. Known Warnings
+------------------
+Production build currently succeeds but may show warnings:
+
+1. CSS import order warning
+   src/index.css keeps Tailwind import before the external Pretendard font
+   import because changing this order previously affected UI rendering.
+
+2. Large JS chunk warning
+   Main bundle is large because App.jsx and MovieDetailModal.jsx include many
+   features in the initial bundle.
+
+
+14. Known Risks and Limitations
+-------------------------------
+- Many legacy Korean UI strings are still mojibake/corrupted.
+- Reviews are stored as an array inside each movie document.
+  This is simple but can become problematic with:
+    - Firestore document size limits
+    - concurrent edits
+    - partial updates
+- Admin UI visibility is controlled on the client by VITE_ADMIN_EMAILS.
+  Real security must be enforced through Firestore Rules.
+- Gemini API key is exposed in the frontend bundle if VITE_GEMINI_API_KEY is
+  used directly.
+- TMDB and Gemini network errors are mostly handled silently or through generic
+  toasts.
+- No automated unit/integration tests are currently present.
+
+
+15. Recommended TODO
+--------------------
+High priority:
+  1. Restore all corrupted Korean UI strings.
+  2. Add Firestore Security Rules for:
+     - movie writes
+     - review ownership
+     - report management
+     - admin-only report status updates
+  3. Move Gemini summary generation to a backend or Cloud Function.
+  4. Add VITE_ADMIN_EMAILS to .env for admin access.
+
+Medium priority:
+  5. Split MovieDetailModal with React lazy loading.
+  6. Move TMDB fetch logic into a separate service module.
+  7. Move Firestore review/collection/report logic into service modules.
+  8. Replace movie document review arrays with subcollections:
+     movies/{movieId}/reviews/{reviewId}
+  9. Add loading and error states for all TMDB/Gemini requests.
+  10. Add pagination or virtualization for long review lists.
+
+Low priority:
+  11. Add profile detail pages for other users.
+  12. Add follow/follower and activity feed.
+  13. Add review search.
+  14. Add yearly/monthly watch statistics.
+  15. Add tests for helpers and Firestore update logic.
+
