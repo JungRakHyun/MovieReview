@@ -10,16 +10,16 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Movie Review - 모든 것을 리뷰한다',
+        name: 'Movie Review - 모든 영화를 리뷰하다',
         short_name: 'Movie Review',
         theme_color: '#0F172A',
         background_color: '#0B1120',
         display: 'standalone',
         icons: [
-          // { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-          // { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' }
-        ]
-      }
-    })
+          { src: 'icon.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icon.png', sizes: '512x512', type: 'image/png' },
+        ],
+      },
+    }),
   ],
 })

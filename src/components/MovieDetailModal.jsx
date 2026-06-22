@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { ChevronLeft, Share2, X, Bot, Star, ThumbsUp, Flag, MessageSquare, Heart, Edit2, Trash2, CornerDownRight, Send, Film, User, Play, ExternalLink } from 'lucide-react';
+import { Share2, X, Bot, Star, ThumbsUp, Flag, MessageSquare, Heart, Edit2, Trash2, CornerDownRight, Send, Film, User, Play, ExternalLink, Eye, BookmarkCheck } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { formatDate } from '../utils';
@@ -8,7 +8,6 @@ import ReportModal from './ReportModal';
 
 export default function MovieDetailModal({ movie, user, onClose, showToast, onSimilarMovieClick }) {
   const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY;
-  const chartRef = useRef(null);
   
   const [reviewText, setReviewText] = useState("");
   const [rating, setRating] = useState(5);
@@ -31,6 +30,8 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
 
   const [providers, setProviders] = useState([]);
   const [tmdbWatchLink, setTmdbWatchLink] = useState("");
+  const [reviewSort, setReviewSort] = useState('latest');
+  const [hideSpoilers, setHideSpoilers] = useState(false);
 
   // 💡 스포일러 관련 상태 추가
   const [isSpoiler, setIsSpoiler] = useState(false); // 리뷰 작성 시 체크 여부
@@ -83,7 +84,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
 
   // 💡 AI 자동 분석 (제미나이 연동)
   const updateAISummaryIfNeeded = async (currentReviews) => {
-    const validReviews = currentReviews.filter(r => r && r.comment);
+    const validReviews = (Array.isArray(currentReviews) ? currentReviews : [currentReviews]).filter(r => r && r.comment);
     if (validReviews.length >= 1) {
       const ACTUAL_GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY; 
       if (!ACTUAL_GEMINI_API_KEY) return;
@@ -110,8 +111,8 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
     const isIOS = /ipad|iphone|ipod/i.test(navigator.userAgent);
 
     let webUrl = tmdbWatchLink;
-    let appScheme = "";
-    let androidPackage = "";
+    let appScheme;
+    let androidPackage;
 
     if (name.includes('netflix')) {
       webUrl = `https://www.netflix.com/search?q=${encodedTitle}`;
@@ -184,7 +185,18 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
 
   const avgUserRating = reviews.length > 0 ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1) : 0;
   const bookmarkedUsers = movie?.bookmarkedUsers || [];
+  const watchedUsers = movie?.watchedUsers || [];
+  const favoriteUsers = movie?.favoriteUsers || [];
   const isBookmarked = bookmarkedUsers.includes(user?.uid);
+  const isWatched = watchedUsers.includes(user?.uid);
+  const isFavorite = favoriteUsers.includes(user?.uid);
+  const visibleReviews = [...reviews]
+    .filter(review => !hideSpoilers || !review.isSpoiler)
+    .sort((a, b) => {
+      if (reviewSort === 'rating') return (b.rating || 0) - (a.rating || 0);
+      if (reviewSort === 'likes') return (b.likes || 0) - (a.likes || 0);
+      return new Date(b.timestamp || 0) - new Date(a.timestamp || 0);
+    });
 
   const handleShare = async () => {
     const shareUrl = `${window.location.origin}${window.location.pathname}?movieId=${movie.id}`;
@@ -202,12 +214,24 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
     } catch (e) { showToast("처리 실패", "error"); }
   };
 
+  const toggleCollection = async (field, currentUsers, activeLabel, inactiveLabel) => {
+    if (!user) return showToast("로그인이 필요합니다.", "error");
+    try {
+      const nextUsers = currentUsers.includes(user.uid) ? currentUsers.filter(id => id !== user.uid) : [...currentUsers, user.uid];
+      await setDoc(doc(db, "movies", movie.id), { title: movie.title, release_date: movie.release_date || '', poster_path: movie.poster_path || '', [field]: nextUsers }, { merge: true });
+      showToast(currentUsers.includes(user.uid) ? inactiveLabel : activeLabel);
+    } catch {
+      showToast("컬렉션 변경에 실패했습니다.", "error");
+    }
+  };
+
   const submitReview = async () => {
     if (!user) return showToast("리뷰를 작성하려면 먼저 로그인해주세요.", "error");
     if (!reviewText.trim()) return showToast("리뷰 내용을 입력해주세요.", "error");
     try {
       // 💡 리뷰 객체에 isSpoiler 필드 포함하여 저장
       const newReview = { rating, comment: reviewText, timestamp: new Date().toISOString(), userName: user.displayName || "익명", uid: user.uid, likes: 0, likedUsers: [], replies: [], isSpoiler };
+      const updatedReviews = [...(movie.reviews || []), newReview];
       await setDoc(doc(db, "movies", movie.id), { title: movie.title, release_date: movie.release_date || '', poster_path: movie.poster_path || '', reviews: arrayUnion(newReview) }, { merge: true });
       setReviewText(""); setRating(5); setIsSpoiler(false); setIsKeyboardActive(false); showToast("소중한 리뷰가 등록되었습니다.");
       await updateAISummaryIfNeeded(updatedReviews);
@@ -360,6 +384,21 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
             </div>
 
             {/* OTT 스트리밍 영역 */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              <button onClick={toggleBookmark} className={`py-2 rounded-xl border text-[10px] font-extrabold flex flex-col items-center gap-1 ${isBookmarked ? 'bg-pink-50 border-pink-200 text-pink-600' : 'bg-white border-slate-200 text-slate-500'}`}>
+                <Heart size={16} className={isBookmarked ? 'fill-pink-500' : ''} />
+                보고 싶어요
+              </button>
+              <button onClick={() => toggleCollection('watchedUsers', watchedUsers, '봤어요에 추가했습니다.', '봤어요에서 제거했습니다.')} className={`py-2 rounded-xl border text-[10px] font-extrabold flex flex-col items-center gap-1 ${isWatched ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-200 text-slate-500'}`}>
+                <Eye size={16} />
+                봤어요
+              </button>
+              <button onClick={() => toggleCollection('favoriteUsers', favoriteUsers, '인생 영화에 추가했습니다.', '인생 영화에서 제거했습니다.')} className={`py-2 rounded-xl border text-[10px] font-extrabold flex flex-col items-center gap-1 ${isFavorite ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-white border-slate-200 text-slate-500'}`}>
+                <BookmarkCheck size={16} />
+                인생 영화
+              </button>
+            </div>
+
             {providers.length > 0 && (
               <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-3.5 mb-5 shadow-sm">
                 <div className="flex justify-between items-center mb-2.5">
@@ -463,11 +502,21 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
               <h3 className="text-[13px] font-bold text-slate-700 mb-3 px-1 flex justify-between items-center">
                 관람평 <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{reviews.length}건</span>
               </h3>
+              <div className="flex items-center gap-2 mb-3">
+                <select value={reviewSort} onChange={(e) => setReviewSort(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 text-slate-600 text-[11px] font-bold py-2 px-3 rounded-lg outline-none">
+                  <option value="latest">최신순</option>
+                  <option value="rating">별점순</option>
+                  <option value="likes">공감순</option>
+                </select>
+                <button onClick={() => setHideSpoilers(prev => !prev)} className={`px-3 py-2 rounded-lg border text-[11px] font-extrabold ${hideSpoilers ? 'bg-red-50 border-red-200 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+                  스포일러 제외
+                </button>
+              </div>
               {reviews.length === 0 ? (
                 <p className="text-center text-xs text-slate-400 py-4 bg-slate-50 rounded-xl border border-slate-100">첫 번째 리뷰를 남겨주세요!</p>
               ) : (
                 <div className="space-y-4">
-                  {[...reviews].reverse().map((rev, idx) => {
+                  {visibleReviews.map((rev, idx) => {
                     const authorBadge = { icon: '', text: '관람객', color: 'bg-slate-100 text-slate-500' };
                     const isReviewLiked = rev.likedUsers?.includes(user?.uid);
                     const isMyReview = user?.uid === rev.uid;

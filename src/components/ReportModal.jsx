@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Flag, X } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
 
-export default function ReportModal({ review, judgeId, user, onClose, showToast }) {
+export default function ReportModal({ review, movieId, user, onClose, showToast }) {
   const [reportForm, setReportForm] = useState({ category: '욕설/비방', reason: '' });
 
   const submitReport = async () => {
     if (!reportForm.reason.trim()) return showToast("신고 사유를 간단히 적어주세요.", "error");
     try {
       await addDoc(collection(db, "reports"), {
-        userId: user.uid, judgeId, reviewTimestamp: review.timestamp,
+        userId: user.uid, movieId, reviewTimestamp: review.timestamp,
         reviewComment: review.comment, category: reportForm.category, 
         reason: reportForm.reason, reportedAt: new Date().toISOString(), status: '접수됨'
       });
