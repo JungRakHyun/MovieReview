@@ -10,8 +10,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'JUDGE MAP - 법관 통합 정보 생태계',
-        short_name: 'JUDGE MAP',
+        name: 'Movie Review - 모든 것을 리뷰한다',
+        short_name: 'Movie Review',
         theme_color: '#0F172A',
         background_color: '#0B1120',
         display: 'standalone',
