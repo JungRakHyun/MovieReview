@@ -81,6 +81,26 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
 
   }, [movie.id, TMDB_API_KEY]);
 
+  // 💡 AI 자동 분석 (제미나이 연동)
+  const updateAISummaryIfNeeded = async (currentReviews) => {
+    const validReviews = currentReviews.filter(r => r && r.comment);
+    if (validReviews.length >= 1) {
+      const ACTUAL_GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY; 
+      if (!ACTUAL_GEMINI_API_KEY) return;
+      const prompt = `다음은 영화 '${movie.title}'에 대한 관람객들의 리뷰입니다. 이 리뷰들의 공통적인 내용과 반응을 3줄로 객관적으로 요약해주세요:\n\n${validReviews.map(r => r.comment).join("\n")}`;
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${ACTUAL_GEMINI_API_KEY}`, { 
+          method: "POST", headers: { "Content-Type": "application/json" }, 
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) 
+        });
+        const data = await res.json();
+        if (res.ok && data.candidates?.length > 0) {
+          await updateDoc(doc(db, "movies", movie.id), { ai_summary: data.candidates[0].content.parts[0].text });
+        }
+      } catch (error) { console.error("AI 요약 실패", error); }
+    }
+  };
+
   const handleOttClick = (e, providerName, movieTitle) => {
     e.preventDefault();
     const encodedTitle = encodeURIComponent(movieTitle);
@@ -190,6 +210,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
       const newReview = { rating, comment: reviewText, timestamp: new Date().toISOString(), userName: user.displayName || "익명", uid: user.uid, likes: 0, likedUsers: [], replies: [], isSpoiler };
       await setDoc(doc(db, "movies", movie.id), { title: movie.title, release_date: movie.release_date || '', poster_path: movie.poster_path || '', reviews: arrayUnion(newReview) }, { merge: true });
       setReviewText(""); setRating(5); setIsSpoiler(false); setIsKeyboardActive(false); showToast("소중한 리뷰가 등록되었습니다.");
+      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("리뷰 등록 실패", "error"); }
   };
 
@@ -203,6 +224,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
       });
       await updateDoc(doc(db, "movies", movie.id), { reviews: updatedReviews });
       setEditingReview(null); setIsKeyboardActive(false); showToast("리뷰가 수정되었습니다.");
+      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("수정 실패", "error"); }
   };
 
@@ -212,6 +234,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
       const updatedReviews = (movie.reviews || []).filter(r => r && (r.timestamp !== rev.timestamp || r.uid !== rev.uid));
       await updateDoc(doc(db, "movies", movie.id), { reviews: updatedReviews });
       showToast("리뷰가 삭제되었습니다.");
+      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("삭제 실패", "error"); }
   };
 
