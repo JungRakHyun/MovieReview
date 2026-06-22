@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Film, LogIn, Home, Search, PlusCircle, UserCircle, Star, ChevronRight, 
-  ShieldAlert, Settings, CheckCircle2, AlertCircle, PlayCircle, Heart
+  CheckCircle2, AlertCircle, PlayCircle, Heart, Filter
 } from 'lucide-react';
 import { db, auth, googleProvider } from './firebase'; 
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
@@ -13,10 +13,14 @@ import MovieDetailModal from './components/MovieDetailModal';
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY;
 
 const genresList = [
-  { id: '', name: '전체' }, { id: '28', name: '액션' }, { id: '35', name: '코미디' }, 
+  { id: '', name: '모든 장르' }, { id: '28', name: '액션' }, { id: '35', name: '코미디' }, 
   { id: '10749', name: '로맨스' }, { id: '27', name: '공포' }, { id: '878', name: 'SF' }, 
-  { id: '16', name: '애니메이션' }, { id: '53', name: '스릴러' }
+  { id: '16', name: '애니메이션' }, { id: '53', name: '스릴러' }, { id: '18', name: '드라마' }
 ];
+
+// 연도 필터 배열 생성 (최근 20년)
+const currentYear = new Date().getFullYear();
+const yearsList = ['', ...Array.from({length: 20}, (_, i) => (currentYear - i).toString())];
 
 const MovieSkeletonCard = () => (
   <div className="bg-white border border-slate-200 p-3 rounded-2xl flex items-center gap-4 shadow-sm animate-pulse mb-3">
@@ -41,14 +45,16 @@ export default function MovieReviewApp() {
   const [reports, setReports] = useState([]); 
   const [isLoadingData, setIsLoadingData] = useState(true);
   
-  // 💡 장르, 정렬, 페이지네이션 상태 추가
   const [trendingMovies, setTrendingMovies] = useState([]);
-  const [selectedGenre, setSelectedGenre] = useState('');
+  const [homeGenre, setHomeGenre] = useState('');
   const [sortOption, setSortOption] = useState('popularity.desc');
   const [page, setPage] = useState(1);
 
+  // 💡 상세 검색용 상태
   const [searchedApiMovies, setSearchedApiMovies] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchGenre, setSearchGenre] = useState("");
+  const [searchYear, setSearchYear] = useState("");
   const [isApiLoading, setIsApiLoading] = useState(false);
 
   const [selectedMovie, setSelectedMovie] = useState(null); 
@@ -124,38 +130,64 @@ export default function MovieReviewApp() {
         if (updated) setSelectedMovie(prev => ({ ...prev, ...updated }));
       }
     });
-    let unsubReports = () => {};
-    if (user) unsubReports = onSnapshot(query(collection(db, "reports"), where("userId", "==", user.uid)), (snapshot) => setReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
-    return () => { unsubMovies(); unsubReports(); };
+    return () => unsubMovies();
   }, [user?.uid, isAuthLoading]);
 
-  // 💡 필터, 정렬, 페이지가 바뀔 때마다 TMDB API 호출
+  // 홈 탭 API (트렌딩/필터)
   useEffect(() => {
     if (currentTab === 'home') {
       setIsApiLoading(true);
-      const genreQuery = selectedGenre ? `&with_genres=${selectedGenre}` : '';
+      const genreQuery = homeGenre ? `&with_genres=${homeGenre}` : '';
       fetch(`https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&language=ko-KR&sort_by=${sortOption}&vote_count.gte=50${genreQuery}&page=${page}`)
         .then(res => res.json())
         .then(data => { 
-          if(data.results) {
-            setTrendingMovies(prev => page === 1 ? data.results : [...prev, ...data.results]);
-          }
+          if(data.results) setTrendingMovies(prev => page === 1 ? data.results : [...prev, ...data.results]);
           setIsApiLoading(false); 
-        })
-        .catch(() => setIsApiLoading(false));
+        }).catch(() => setIsApiLoading(false));
     }
-  }, [currentTab, selectedGenre, sortOption, page]);
+  }, [currentTab, homeGenre, sortOption, page]);
 
+  // 💡 검색 탭 API (텍스트 + 장르 + 연도 상세 검색)
   useEffect(() => {
-    if (currentTab === 'search' && searchQuery.trim().length > 1) {
-      const delayFn = setTimeout(() => {
+    if (currentTab === 'search') {
+      const fetchSearch = async () => {
         setIsApiLoading(true);
-        fetch(`https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&language=ko-KR&query=${searchQuery}`)
-          .then(res => res.json()).then(data => { if(data.results) setSearchedApiMovies(data.results); setIsApiLoading(false); });
-      }, 500); 
+        let url = '';
+        // 1. 검색어가 있을 경우 (텍스트 기반 검색)
+        if (searchQuery.trim().length > 1) {
+          url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&language=ko-KR&query=${searchQuery}`;
+          if (searchYear) url += `&primary_release_year=${searchYear}`;
+        } 
+        // 2. 검색어는 없지만 필터를 선택했을 경우 (디스커버리)
+        else if (searchGenre || searchYear) {
+          url = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&language=ko-KR&sort_by=popularity.desc`;
+          if (searchGenre) url += `&with_genres=${searchGenre}`;
+          if (searchYear) url += `&primary_release_year=${searchYear}`;
+        } 
+        // 3. 아무것도 없으면 초기화
+        else {
+          setSearchedApiMovies([]);
+          setIsApiLoading(false);
+          return;
+        }
+
+        try {
+          const res = await fetch(url);
+          const data = await res.json();
+          let results = data.results || [];
+          // TMDB /search/movie는 장르 필터를 직접 지원하지 않아 클라이언트 단에서 필터링 처리
+          if (searchQuery.trim().length > 1 && searchGenre) {
+            results = results.filter(m => m.genre_ids?.includes(Number(searchGenre)));
+          }
+          setSearchedApiMovies(results);
+        } catch (e) {}
+        setIsApiLoading(false);
+      };
+
+      const delayFn = setTimeout(fetchSearch, 500); 
       return () => clearTimeout(delayFn);
-    } else setSearchedApiMovies([]);
-  }, [searchQuery, currentTab]);
+    }
+  }, [searchQuery, searchGenre, searchYear, currentTab]);
 
   const handleLogin = () => signInWithPopup(auth, googleProvider).then((res) => { setUser(res.user); showToast("로그인 성공!"); }).catch((e) => showToast("로그인 실패: " + e.message, "error"));
   const handleLogout = async () => { if (window.confirm("로그아웃하시겠습니까?")) { await signOut(auth); showToast("로그아웃 되었습니다."); handleTabChange('home'); } };
@@ -178,7 +210,6 @@ export default function MovieReviewApp() {
       <div className="w-full h-[100dvh] bg-[#0B1120] flex flex-col items-center justify-center select-none animate-fade-in">
         <Film className="text-blue-500 mb-5 animate-pulse" size={64} />
         <h1 className="text-white font-extrabold text-3xl tracking-tight leading-tight mb-2">Movie Review</h1>
-        <p className="text-slate-400 text-xs font-bold tracking-widest">영화 리뷰 통합 생태계</p>
       </div>
     );
   }
@@ -212,11 +243,9 @@ export default function MovieReviewApp() {
                 <option value="vote_average.desc">⭐ 평점순</option>
               </select>
             </div>
-            
-            {/* 장르 선택 필터 */}
             <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
-              {genresList.map(g => (
-                <button key={g.id} onClick={() => { setSelectedGenre(g.id); setPage(1); }} className={`px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap transition-colors ${selectedGenre === g.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+              {genresList.filter(g => g.name !== '모든 장르').map(g => (
+                <button key={g.id} onClick={() => { setHomeGenre(g.id === homeGenre ? '' : g.id); setPage(1); }} className={`px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap transition-colors ${homeGenre === g.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                   {g.name}
                 </button>
               ))}
@@ -243,8 +272,6 @@ export default function MovieReviewApp() {
                     <ChevronRight size={18} className="text-slate-300 shrink-0" />
                   </div>
                 ))}
-                
-                {/* 💡 더보기 (페이지네이션) 버튼 */}
                 <button onClick={() => setPage(p => p + 1)} disabled={isApiLoading} className="w-full py-3.5 mt-2 bg-slate-100 text-slate-600 font-bold text-[13px] rounded-xl hover:bg-slate-200 transition-colors border border-slate-200 shadow-sm">
                   {isApiLoading ? '불러오는 중...' : '영화 더보기 ▾'}
                 </button>
@@ -254,50 +281,52 @@ export default function MovieReviewApp() {
         </div>
       )}
 
-      {/* ==================== 2. 검색 탭 ==================== */}
+      {/* ==================== 2. 검색 탭 (상세 검색 적용) ==================== */}
       {currentTab === 'search' && (
         <div className="w-full max-w-md flex-1 flex flex-col bg-slate-50 h-[100dvh] overflow-hidden">
           <div className="p-4 bg-white border-b border-slate-200 shadow-sm shrink-0">
-            <div className="relative">
+            <div className="relative mb-3">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-              <input type="text" placeholder="영화 제목을 검색해보세요." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[13px] outline-none focus:ring-2 focus:ring-blue-500"/>
+              <input type="text" placeholder="영화 제목을 검색해보세요." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[13px] outline-none focus:ring-2 focus:ring-blue-500"/>
+            </div>
+            {/* 💡 상세 검색 필터 UI */}
+            <div className="flex gap-2">
+              <select value={searchGenre} onChange={(e) => setSearchGenre(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 text-slate-600 text-xs py-2 px-3 rounded-lg outline-none focus:ring-1 focus:ring-blue-500">
+                {genresList.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+              <select value={searchYear} onChange={(e) => setSearchYear(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 text-slate-600 text-xs py-2 px-3 rounded-lg outline-none focus:ring-1 focus:ring-blue-500">
+                <option value="">모든 연도</option>
+                {yearsList.filter(Boolean).map(y => <option key={y} value={y}>{y}년</option>)}
+              </select>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-4 custom-scrollbar touch-auto">
             {isApiLoading ? (
               <div className="flex flex-col gap-3 pb-6">{[1, 2, 3].map(i => <MovieSkeletonCard key={i} />)}</div>
-            ) : searchQuery.trim().length > 1 ? (
+            ) : searchedApiMovies.length > 0 ? (
               <div className="flex flex-col gap-3 pb-6">
-                {searchedApiMovies.length === 0 ? ( <p className="text-center text-xs text-slate-400 py-10">검색 결과가 없습니다.</p> ) : (
-                  searchedApiMovies.map(movie => (
-                    <div key={movie.id} onClick={() => openMovieDetail(movie)} className="bg-white border border-slate-200 p-3 rounded-2xl flex items-center gap-4 cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group">
-                      {movie.poster_path ? <img src={`https://image.tmdb.org/t/p/w200${movie.poster_path}`} alt={movie.title} className="w-12 h-16 object-cover rounded-lg shadow-sm shrink-0" /> : <div className="w-12 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-slate-300 shrink-0"><Film size={18}/></div>}
-                      <div className="flex-1 overflow-hidden"><p className="text-[10px] font-bold text-slate-500 mb-0.5">{movie.release_date}</p><p className="text-sm font-extrabold text-slate-800 truncate group-hover:text-blue-600">{movie.title}</p></div>
-                      <ChevronRight size={16} className="text-slate-300 shrink-0" />
-                    </div>
-                  ))
-                )}
+                {searchedApiMovies.map(movie => (
+                  <div key={movie.id} onClick={() => openMovieDetail(movie)} className="bg-white border border-slate-200 p-3 rounded-2xl flex items-center gap-4 cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group">
+                    {movie.poster_path ? <img src={`https://image.tmdb.org/t/p/w200${movie.poster_path}`} alt={movie.title} className="w-12 h-16 object-cover rounded-lg shadow-sm shrink-0" /> : <div className="w-12 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-slate-300 shrink-0"><Film size={18}/></div>}
+                    <div className="flex-1 overflow-hidden"><p className="text-[10px] font-bold text-slate-500 mb-0.5">{movie.release_date}</p><p className="text-sm font-extrabold text-slate-800 truncate group-hover:text-blue-600">{movie.title}</p></div>
+                    <ChevronRight size={16} className="text-slate-300 shrink-0" />
+                  </div>
+                ))}
               </div>
             ) : (
-              <div className="h-full flex flex-col items-center justify-center text-slate-400 pb-20"><Search size={40} className="mb-3 opacity-20" /><p className="text-sm font-bold">2글자 이상 입력해주세요.</p></div>
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 pb-20">
+                <Filter size={40} className="mb-3 opacity-20" />
+                <p className="text-sm font-bold">제목, 장르, 연도로 검색해보세요.</p>
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* ==================== 3. 등록 탭 ==================== */}
-      {currentTab === 'register' && (
-        <div className="w-full max-w-md flex-1 overflow-y-auto px-4 py-4 custom-scrollbar bg-slate-50">
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 pb-10">
-            <h2 className="text-lg font-bold text-slate-800 mb-5 flex items-center gap-2"><PlusCircle className="text-blue-600" /> 커스텀 영화 등록</h2>
-            <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 mb-4"><p className="text-xs text-blue-800 leading-snug font-medium">검색에 나오지 않는 독립 영화를 직접 등록하는 기능은 준비 중입니다.</p></div>
-          </div>
-        </div>
-      )}
-
-      {/* ==================== 4. 마이페이지 탭 ==================== */}
+      {/* ==================== 3. 마이페이지 탭 ==================== */}
       {currentTab === 'mypage' && (
         <div className="w-full max-w-md flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
+          {/* 기존과 동일하므로 길이 조절상 중간 내용 생략 없이 모두 유지 */}
           {!user ? (
             <div className="h-full flex flex-col items-center justify-center p-8 text-center pt-[30%]"><UserCircle className="text-slate-300 mb-4" size={48} /><p className="text-lg font-bold text-slate-700 mb-2">로그인이 필요합니다</p><button onClick={handleLogin} className="bg-blue-600 text-white px-6 py-3 rounded-xl text-sm font-bold shadow-md mt-4">구글로 로그인</button></div>
           ) : (
@@ -310,7 +339,6 @@ export default function MovieReviewApp() {
                   <div className="inline-block bg-slate-50 border border-slate-100 text-slate-600 px-2.5 py-1 rounded-md text-[10px] font-bold">작성한 영화 리뷰 <span className="text-blue-600">{myReviews.length}</span>개</div>
                 </div>
               </div>
-
               <div className="p-4 pb-0 border-b border-slate-100 border-dashed">
                 <h3 className="text-sm font-bold text-slate-800 mb-3 px-1 flex items-center gap-1"><Heart size={16} className="text-pink-500 fill-pink-500" /> 인생 영화</h3>
                 {bookmarkedMovies.length === 0 ? ( 
@@ -326,7 +354,6 @@ export default function MovieReviewApp() {
                   </div>
                 )}
               </div>
-
               <div className="p-4 pb-4">
                 <h3 className="text-sm font-bold text-slate-800 mb-3 px-1 mt-2">내가 작성한 리뷰</h3>
                 {myReviews.length === 0 ? ( 
@@ -334,10 +361,7 @@ export default function MovieReviewApp() {
                 ) : (
                   <div className="space-y-3">
                     {myReviews.map((rev, idx) => (
-                      <div key={idx} onClick={() => { 
-                        const movie = dbMovies.find(m => m.id === rev.movieId); 
-                        if(movie) openMovieDetail(movie);
-                      }} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm cursor-pointer hover:border-blue-300">
+                      <div key={idx} onClick={() => { const movie = dbMovies.find(m => m.id === rev.movieId); if(movie) openMovieDetail(movie); }} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm cursor-pointer hover:border-blue-300">
                         <div className="flex justify-between items-center mb-2"><p className="text-xs font-bold text-blue-600">{rev.movieTitle}</p><span className="text-[10px] text-slate-400">{formatDate(rev.timestamp)}</span></div>
                         <div className="flex items-center mb-1.5 gap-1">{[1,2,3,4,5].map(star => (<Star key={star} size={10} className={star <= rev.rating ? "fill-amber-400 text-amber-400" : "text-slate-200"} />))}</div>
                         <p className="text-[13px] text-slate-700">{rev.comment}</p>
@@ -351,13 +375,12 @@ export default function MovieReviewApp() {
         </div>
       )}
 
-      {selectedMovie && <MovieDetailModal key={selectedMovie.id} movie={selectedMovie} keyboardOffset={keyboardOffset} user={user} onClose={() => window.history.back()} showToast={showToast} />}
+      {selectedMovie && <MovieDetailModal key={selectedMovie.id} movie={selectedMovie} keyboardOffset={keyboardOffset} user={user} onClose={() => window.history.back()} showToast={showToast} onSimilarMovieClick={openMovieDetail} />}
 
       <nav className="fixed bottom-0 w-full max-w-md bg-white border-t border-slate-200 flex justify-between items-center px-4 pb-[max(env(safe-area-inset-bottom),12px)] z-40 shadow-[0_-5px_15px_-5px_rgba(0,0,0,0.05)]">
-        <button onClick={() => handleTabChange('home')} className={`flex flex-col items-center p-2 w-1/4 transition-colors ${currentTab === 'home' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><Home size={20} className="mb-1" /><span className="text-[9px] font-bold">홈</span></button>
-        <button onClick={() => handleTabChange('search')} className={`flex flex-col items-center p-2 w-1/4 transition-colors ${currentTab === 'search' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><Search size={20} className="mb-1" /><span className="text-[9px] font-bold">검색</span></button>
-        <button onClick={() => handleTabChange('register')} className={`flex flex-col items-center p-2 w-1/4 transition-colors ${currentTab === 'register' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><PlusCircle size={20} className="mb-1" /><span className="text-[9px] font-bold">직접 등록</span></button>
-        <button onClick={() => handleTabChange('mypage')} className={`flex flex-col items-center p-2 w-1/4 transition-colors ${currentTab === 'mypage' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><UserCircle size={20} className="mb-1" /><span className="text-[9px] font-bold">마이페이지</span></button>
+        <button onClick={() => handleTabChange('home')} className={`flex flex-col items-center p-2 w-1/3 transition-colors ${currentTab === 'home' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><Home size={20} className="mb-1" /><span className="text-[9px] font-bold">홈</span></button>
+        <button onClick={() => handleTabChange('search')} className={`flex flex-col items-center p-2 w-1/3 transition-colors ${currentTab === 'search' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><Search size={20} className="mb-1" /><span className="text-[9px] font-bold">검색</span></button>
+        <button onClick={() => handleTabChange('mypage')} className={`flex flex-col items-center p-2 w-1/3 transition-colors ${currentTab === 'mypage' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><UserCircle size={20} className="mb-1" /><span className="text-[9px] font-bold">마이페이지</span></button>
       </nav>
     </div>
   );

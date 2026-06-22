@@ -1,26 +1,84 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { ChevronLeft, Share2, X, Bot, Star, ThumbsUp, Flag, MessageSquare, Heart, Edit2, Trash2, CornerDownRight, Send, Film } from 'lucide-react';
+import { ChevronLeft, Share2, X, Bot, Star, ThumbsUp, Flag, MessageSquare, Heart, Edit2, Trash2, CornerDownRight, Send, Film, User, Play } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { formatDate, getUserBadge } from '../utils';
+import { formatDate } from '../utils';
 import ReportModal from './ReportModal';
 
-export default function MovieDetailModal({ movie, user, onClose, showToast }) {
+export default function MovieDetailModal({ movie, user, onClose, showToast, onSimilarMovieClick }) {
+  const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY;
+  const chartRef = useRef(null);
+  
   const [reviewText, setReviewText] = useState("");
   const [rating, setRating] = useState(5);
   const [isKeyboardActive, setIsKeyboardActive] = useState(false);
   const [reportModalReview, setReportModalReview] = useState(null);
 
-  // 리뷰/답글 수정 및 작성용 상태 관리
   const [editingReview, setEditingReview] = useState(null); 
   const [replyingTo, setReplyingTo] = useState(null); 
   const [replyText, setReplyText] = useState("");
   const [editingReply, setEditingReply] = useState(null); 
 
+  const [cast, setCast] = useState([]);
+  const [selectedPerson, setSelectedPerson] = useState(null);
+  const [personMovies, setPersonMovies] = useState([]);
+  const [isPersonLoading, setIsPersonLoading] = useState(false);
+  const [similarMovies, setSimilarMovies] = useState([]); 
+
+  // 💡 예고편 상태 관리
+  const [trailerKey, setTrailerKey] = useState(null);
+  const [showTrailer, setShowTrailer] = useState(false);
+
+  useEffect(() => {
+    // 1. 출연진 정보 가져오기
+    fetch(`https://api.themoviedb.org/3/movie/${movie.id}/credits?api_key=${TMDB_API_KEY}&language=ko-KR`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.cast) setCast(data.cast.slice(0, 10)); 
+      }).catch(e => console.error(e));
+
+    // 2. 시리즈 및 추천 영화 가져오기
+    fetch(`https://api.themoviedb.org/3/movie/${movie.id}/recommendations?api_key=${TMDB_API_KEY}&language=ko-KR&page=1`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.results) setSimilarMovies(data.results.slice(0, 10)); 
+      }).catch(e => console.error(e));
+
+    // 💡 3. 유튜브 예고편 가져오기 (한국어 우선, 없으면 글로벌)
+    fetch(`https://api.themoviedb.org/3/movie/${movie.id}/videos?api_key=${TMDB_API_KEY}&language=ko-KR`)
+      .then(res => res.json())
+      .then(data => {
+        let trailer = data.results?.find(v => v.site === 'YouTube' && v.type === 'Trailer');
+        if (!trailer) {
+          fetch(`https://api.themoviedb.org/3/movie/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
+            .then(res2 => res2.json())
+            .then(data2 => {
+              trailer = data2.results?.find(v => v.site === 'YouTube' && v.type === 'Trailer');
+              if (trailer) setTrailerKey(trailer.key);
+            });
+        } else {
+          setTrailerKey(trailer.key);
+        }
+      }).catch(e => console.error(e));
+  }, [movie.id, TMDB_API_KEY]);
+
+  const handlePersonClick = (person) => {
+    setSelectedPerson(person);
+    setIsPersonLoading(true);
+    fetch(`https://api.themoviedb.org/3/person/${person.id}/movie_credits?api_key=${TMDB_API_KEY}&language=ko-KR`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.cast) {
+          const sortedMovies = data.cast.sort((a, b) => b.popularity - a.popularity).slice(0, 20);
+          setPersonMovies(sortedMovies);
+        }
+        setIsPersonLoading(false);
+      }).catch(() => setIsPersonLoading(false));
+  };
+
   const isUserActiveOnOtherInput = replyingTo !== null || editingReview !== null || editingReply !== null;
 
-  // 영화 별점 통계 가공 (긍정:4~5, 보통:3, 부정:1~2)
   const reviews = movie.reviews || [];
   const posCount = reviews.filter(r => r.rating >= 4).length;
   const neuCount = reviews.filter(r => r.rating >= 3 && r.rating < 4).length;
@@ -32,24 +90,16 @@ export default function MovieDetailModal({ movie, user, onClose, showToast }) {
     { name: '부정 평가', value: negCount, color: '#EF4444' }
   ];
 
+  const avgUserRating = reviews.length > 0 ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1) : 0;
+
   const bookmarkedUsers = movie?.bookmarkedUsers || [];
   const isBookmarked = bookmarkedUsers.includes(user?.uid);
 
-  // 💡 공유하기 로직 (딥링크 적용)
   const handleShare = async () => {
     const shareUrl = `${window.location.origin}${window.location.pathname}?movieId=${movie.id}`;
-    const shareData = { 
-      title: `${movie.title} - MOVIE LOUNGE`, 
-      text: `${movie.title} 영화의 실관람객 별점과 리뷰를 확인해보세요!`, 
-      url: shareUrl 
-    };
-
-    if (navigator.share) { 
-      try { await navigator.share(shareData); } catch (e) {} 
-    } else { 
-      navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`); 
-      showToast("클립보드에 영화 전용 링크가 복사되었습니다!"); 
-    }
+    const shareData = { title: `${movie.title} - MovieReview`, text: `${movie.title} 영화의 실관람객 별점과 리뷰를 확인해보세요!`, url: shareUrl };
+    if (navigator.share) { try { await navigator.share(shareData); } catch (e) {} } 
+    else { navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`); showToast("클립보드에 링크가 복사되었습니다!"); }
   };
 
   const toggleBookmark = async () => {
@@ -61,35 +111,13 @@ export default function MovieDetailModal({ movie, user, onClose, showToast }) {
     } catch (e) { showToast("처리 실패", "error"); }
   };
 
-  // 💡 AI 자동 분석 (제미나이 연동)
-  const updateAISummaryIfNeeded = async (currentReviews) => {
-    const validReviews = currentReviews.filter(r => r && r.comment);
-    if (validReviews.length >= 2) {
-      const ACTUAL_GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY; 
-      if (!ACTUAL_GEMINI_API_KEY) return;
-      const prompt = `다음은 영화 '${movie.title}'에 대한 관람객들의 리뷰입니다. 이 리뷰들의 공통적인 내용과 반응을 3줄로 객관적으로 요약해주세요:\n\n${validReviews.map(r => r.comment).join("\n")}`;
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${ACTUAL_GEMINI_API_KEY}`, { 
-          method: "POST", headers: { "Content-Type": "application/json" }, 
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) 
-        });
-        const data = await res.json();
-        if (res.ok && data.candidates?.length > 0) {
-          await updateDoc(doc(db, "movies", movie.id), { ai_summary: data.candidates[0].content.parts[0].text });
-        }
-      } catch (error) { console.error("AI 요약 실패", error); }
-    }
-  };
-
   const submitReview = async () => {
     if (!user) return showToast("리뷰를 작성하려면 먼저 로그인해주세요.", "error");
     if (!reviewText.trim()) return showToast("리뷰 내용을 입력해주세요.", "error");
     try {
       const newReview = { rating, comment: reviewText, timestamp: new Date().toISOString(), userName: user.displayName || "익명", uid: user.uid, likes: 0, likedUsers: [], replies: [] };
-      const updatedReviews = [...(movie.reviews || []), newReview];
       await setDoc(doc(db, "movies", movie.id), { title: movie.title, release_date: movie.release_date || '', poster_path: movie.poster_path || '', reviews: arrayUnion(newReview) }, { merge: true });
       setReviewText(""); setRating(5); setIsKeyboardActive(false); showToast("소중한 리뷰가 등록되었습니다.");
-      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("리뷰 등록 실패", "error"); }
   };
 
@@ -103,7 +131,6 @@ export default function MovieDetailModal({ movie, user, onClose, showToast }) {
       });
       await updateDoc(doc(db, "movies", movie.id), { reviews: updatedReviews });
       setEditingReview(null); setIsKeyboardActive(false); showToast("리뷰가 수정되었습니다.");
-      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("수정 실패", "error"); }
   };
 
@@ -113,7 +140,6 @@ export default function MovieDetailModal({ movie, user, onClose, showToast }) {
       const updatedReviews = (movie.reviews || []).filter(r => r && (r.timestamp !== rev.timestamp || r.uid !== rev.uid));
       await updateDoc(doc(db, "movies", movie.id), { reviews: updatedReviews });
       showToast("리뷰가 삭제되었습니다.");
-      await updateAISummaryIfNeeded(updatedReviews);
     } catch (e) { showToast("삭제 실패", "error"); }
   };
 
@@ -124,9 +150,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast }) {
     try {
       const updatedReviews = movie.reviews.map(r => {
         if (r.uid === rev.uid && r.timestamp === rev.timestamp) {
-          return isLiked 
-            ? { ...r, likes: Math.max(0, (r.likes || 1) - 1), likedUsers: likedUsers.filter(id => id !== user.uid) }
-            : { ...r, likes: (r.likes || 0) + 1, likedUsers: [...likedUsers, user.uid] };
+          return isLiked ? { ...r, likes: Math.max(0, (r.likes || 1) - 1), likedUsers: likedUsers.filter(id => id !== user.uid) } : { ...r, likes: (r.likes || 0) + 1, likedUsers: [...likedUsers, user.uid] };
         }
         return r;
       });
@@ -177,9 +201,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast }) {
     } catch (e) {}
   };
 
-  const handleCancelSubInputs = () => {
-    setReplyingTo(null); setEditingReview(null); setEditingReply(null); setReplyText(""); setIsKeyboardActive(false);
-  };
+  const handleCancelSubInputs = () => { setReplyingTo(null); setEditingReview(null); setEditingReply(null); setReplyText(""); setIsKeyboardActive(false); };
 
   const renderReadOnlyStars = (ratingValue, size = 10) => {
     return (
@@ -227,9 +249,83 @@ export default function MovieDetailModal({ movie, user, onClose, showToast }) {
               <div className="flex-1 overflow-hidden">
                 <p className="text-[11px] font-semibold text-slate-500 mb-1">개봉일: {movie.release_date || '미정'}</p>
                 <p className="text-lg font-extrabold text-slate-800 leading-tight mb-2">{movie.title}</p>
-                <p className="text-xs text-slate-600 line-clamp-4 leading-snug">{movie.overview || '등록된 줄거리가 없습니다.'}</p>
+                <p className="text-xs text-slate-600 line-clamp-3 leading-snug mb-2">{movie.overview || '등록된 줄거리가 없습니다.'}</p>
+                
+                {/* 💡 예고편 재생 버튼 */}
+                {trailerKey && (
+                  <button 
+                    onClick={() => setShowTrailer(true)}
+                    className="flex items-center gap-1.5 bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-[11px] font-bold hover:bg-red-100 transition-colors w-fit"
+                  >
+                    <Play size={14} /> 공식 예고편 재생
+                  </button>
+                )}
               </div>
             </div>
+
+            <div className="flex gap-3 mb-6">
+              <div className="flex-1 bg-blue-50/50 border border-blue-100 p-3 rounded-xl flex flex-col items-center justify-center">
+                <p className="text-[10px] font-bold text-blue-600 mb-1">TMDB 글로벌 평점</p>
+                <div className="flex items-center gap-1">
+                  <Star size={14} className="fill-amber-400 text-amber-400" />
+                  <span className="text-lg font-extrabold text-slate-800">{movie.vote_average ? movie.vote_average.toFixed(1) : 'N/A'}</span>
+                  <span className="text-[10px] text-slate-400 font-normal">/ 10</span>
+                </div>
+              </div>
+              <div className="flex-1 bg-pink-50/50 border border-pink-100 p-3 rounded-xl flex flex-col items-center justify-center">
+                <p className="text-[10px] font-bold text-pink-600 mb-1">유저평점</p>
+                <div className="flex items-center gap-1">
+                  <Star size={14} className="fill-amber-400 text-amber-400" />
+                  <span className="text-lg font-extrabold text-slate-800">{avgUserRating > 0 ? avgUserRating : 'N/A'}</span>
+                  <span className="text-[10px] text-slate-400 font-normal">/ 5</span>
+                </div>
+              </div>
+            </div>
+
+            {cast.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-[13px] font-bold text-slate-700 mb-2 px-1">주요 출연진</h3>
+                <div className="flex gap-3 overflow-x-auto custom-scrollbar pb-2 px-1">
+                  {cast.map(person => (
+                    <div 
+                      key={person.id} 
+                      onClick={() => handlePersonClick(person)}
+                      className="flex flex-col items-center shrink-0 w-16 cursor-pointer hover:opacity-75 transition-opacity"
+                    >
+                      {person.profile_path ? (
+                        <img src={`https://image.tmdb.org/t/p/w200${person.profile_path}`} alt={person.name} className="w-12 h-12 rounded-full object-cover shadow-sm mb-1.5 border border-slate-200" />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200 mb-1.5 text-slate-300"><User size={20}/></div>
+                      )}
+                      <p className="text-[10px] font-extrabold text-slate-700 text-center line-clamp-1 w-full">{person.name}</p>
+                      <p className="text-[9px] text-slate-400 text-center line-clamp-1 w-full">{person.character}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {similarMovies.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-[13px] font-bold text-slate-700 mb-2 px-1">시리즈 및 추천 영화</h3>
+                <div className="flex gap-3 overflow-x-auto custom-scrollbar pb-2 px-1">
+                  {similarMovies.map(m => (
+                    <div 
+                      key={m.id} 
+                      className="flex flex-col items-center shrink-0 w-20 cursor-pointer hover:opacity-75 transition-opacity"
+                      onClick={() => onSimilarMovieClick && onSimilarMovieClick(m)}
+                    >
+                      {m.poster_path ? (
+                        <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} className="w-20 h-28 object-cover rounded-lg shadow-sm mb-1.5 border border-slate-200" />
+                      ) : (
+                        <div className="w-20 h-28 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200 mb-1.5 text-slate-300"><Film size={24}/></div>
+                      )}
+                      <p className="text-[10px] font-extrabold text-slate-700 text-center line-clamp-1 w-full">{m.title}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {movie.ai_summary && (
               <div className="bg-indigo-50/50 border border-indigo-100 p-4 rounded-xl mb-4">
@@ -259,7 +355,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast }) {
               ) : (
                 <div className="space-y-4">
                   {[...reviews].reverse().map((rev, idx) => {
-                    const authorBadge = { icon: '', text: '관람객', color: 'bg-slate-100 text-slate-500' }; // 뱃지 기능 유지 시 getUserBadge 활용 가능
+                    const authorBadge = { icon: '', text: '관람객', color: 'bg-slate-100 text-slate-500' };
                     const isReviewLiked = rev.likedUsers?.includes(user?.uid);
                     const isMyReview = user?.uid === rev.uid;
                     const isEditing = editingReview?.timestamp === rev.timestamp;
@@ -341,7 +437,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast }) {
 
                         {rev.replies && rev.replies.length > 0 && (
                           <div className="mt-3 pl-2 border-l-2 border-slate-200 space-y-2">
-                            {rev.replies.filter(Boolean).map((reply, rIdx) => { 
+                            {rev.replies.filter(Boolean).map((reply, rIdx) => {
                               const isMyReply = user?.uid === reply?.uid;
                               const isEditingReply = editingReply?.reviewTimestamp === rev.timestamp && editingReply?.replyTimestamp === reply?.timestamp;
 
@@ -441,6 +537,58 @@ export default function MovieDetailModal({ movie, user, onClose, showToast }) {
         </div>
       </div>
       
+      {/* 💡 예고편 유튜브 모달 */}
+      {showTrailer && trailerKey && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-3xl bg-black rounded-2xl overflow-hidden relative shadow-2xl border border-slate-800">
+            <button onClick={() => setShowTrailer(false)} className="absolute -top-10 right-0 text-white p-2 hover:text-red-500 transition-colors">
+              <X size={28} />
+            </button>
+            <div className="relative pt-[56.25%] w-full bg-black">
+              <iframe 
+                className="absolute inset-0 w-full h-full"
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&rel=0`} 
+                title="YouTube video player"
+                frameBorder="0" 
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                allowFullScreen
+              ></iframe>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 💡 필모그래피 서브 모달 */}
+      {selectedPerson && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-sm transition-opacity duration-300">
+          <div className="w-full max-w-md bg-white rounded-t-3xl shadow-2xl flex flex-col h-[80dvh] animate-slide-up">
+            <div className="p-4 border-b flex justify-between items-center bg-white rounded-t-3xl shrink-0">
+              <h2 className="text-base font-bold text-slate-900 ml-1">{selectedPerson.name}의 필모그래피</h2>
+              <button onClick={() => setSelectedPerson(null)} className="p-1.5 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+              {isPersonLoading ? (
+                <div className="flex justify-center py-10"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>
+              ) : (
+                <div className="grid grid-cols-3 gap-3">
+                  {personMovies.map(m => (
+                    <div key={m.id} className="flex flex-col items-center">
+                      {m.poster_path ? (
+                        <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} className="w-full h-32 object-cover rounded-lg shadow-sm mb-1.5 border border-slate-200" />
+                      ) : (
+                        <div className="w-full h-32 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200 mb-1.5 text-slate-300"><Film size={24}/></div>
+                      )}
+                      <p className="text-[11px] font-extrabold text-slate-700 text-center line-clamp-1 w-full">{m.title}</p>
+                      <p className="text-[9px] text-slate-400 text-center">{m.release_date?.split('-')[0] || '미정'}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {reportModalReview && <ReportModal review={reportModalReview} judgeId={movie.id} user={user} onClose={() => setReportModalReview(null)} showToast={showToast} />}
     </>
   );
