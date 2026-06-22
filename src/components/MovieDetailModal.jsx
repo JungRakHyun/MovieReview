@@ -33,15 +33,12 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
   const [tmdbWatchLink, setTmdbWatchLink] = useState("");
 
   useEffect(() => {
-    // 1. 출연진 정보
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/credits?api_key=${TMDB_API_KEY}&language=ko-KR`)
       .then(res => res.json()).then(data => { if (data.cast) setCast(data.cast.slice(0, 10)); }).catch(e => console.error(e));
 
-    // 2. 시리즈 및 추천 영화
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/recommendations?api_key=${TMDB_API_KEY}&language=ko-KR&page=1`)
       .then(res => res.json()).then(data => { if (data.results) setSimilarMovies(data.results.slice(0, 10)); }).catch(e => console.error(e));
 
-    // 3. 예고편 정보
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/videos?api_key=${TMDB_API_KEY}&language=ko-KR`)
       .then(res => res.json())
       .then(data => {
@@ -58,7 +55,6 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
         }
       }).catch(e => console.error(e));
 
-    // 4. OTT 플랫폼 정보
     fetch(`https://api.themoviedb.org/3/movie/${movie.id}/watch/providers?api_key=${TMDB_API_KEY}`)
       .then(res => res.json())
       .then(data => {
@@ -77,7 +73,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
 
   }, [movie.id, TMDB_API_KEY]);
 
-  // 💡 OTT 클릭 시 스마트폰 앱(Deep Link)으로 강제 이동시키는 함수
+  // 💡 모바일 브라우저별 딥링크 처리 로직 최적화
   const handleOttClick = (e, providerName, movieTitle) => {
     e.preventDefault();
     const encodedTitle = encodeURIComponent(movieTitle);
@@ -120,9 +116,13 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
     }
 
     if (isAndroid) {
-      const intentUrl = `intent://${appScheme.split('://')[1] || ''}#Intent;scheme=${appScheme.split('://')[0]};package=${androidPackage};S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
+      // 안드로이드 표준 인텐트 조합 필터링 최적화
+      const cleanSchemePath = appScheme.includes('://') ? appScheme.split('://')[1] : '';
+      const schemeProto = appScheme.split('://')[0];
+      const intentUrl = `intent://${cleanSchemePath}#Intent;scheme=${schemeProto};package=${androidPackage};S.browser_fallback_url=${encodeURIComponent(webUrl)};end`;
       window.location.href = intentUrl;
     } else if (isIOS) {
+      // iOS 타이머 기법 롤백 처리
       window.location.href = appScheme;
       setTimeout(() => { window.location.href = webUrl; }, 1500);
     } else {
@@ -158,7 +158,6 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
   ];
 
   const avgUserRating = reviews.length > 0 ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1) : 0;
-
   const bookmarkedUsers = movie?.bookmarkedUsers || [];
   const isBookmarked = bookmarkedUsers.includes(user?.uid);
 
@@ -331,18 +330,13 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
               </div>
             </div>
 
-            {/* 💡 업그레이드된 다이렉트 딥링크 OTT 스트리밍 영역 */}
+            {/* OTT 스트리밍 영역 */}
             {providers.length > 0 && (
               <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-3.5 mb-5 shadow-sm">
                 <div className="flex justify-between items-center mb-2.5">
                   <span className="text-[12px] font-extrabold text-slate-700 flex items-center gap-1">🍿 지금 보러가기</span>
                   {tmdbWatchLink && (
-                    <a 
-                      href={tmdbWatchLink} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      className="text-[10px] text-blue-600 font-bold flex items-center gap-0.5 hover:underline"
-                    >
+                    <a href={tmdbWatchLink} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 font-bold flex items-center gap-0.5 hover:underline">
                       전체보기 <ExternalLink size={10} />
                     </a>
                   )}
@@ -355,11 +349,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                       className="flex flex-col items-center shrink-0 w-14 group relative cursor-pointer"
                     >
                       <div className="relative">
-                        <img 
-                          src={`https://image.tmdb.org/t/p/w200${p.logo_path}`} 
-                          alt={p.provider_name} 
-                          className="w-11 h-11 rounded-xl shadow-sm border border-slate-200 group-hover:scale-105 group-hover:shadow-md transition-all" 
-                        />
+                        <img src={`https://image.tmdb.org/t/p/w200${p.logo_path}`} alt={p.provider_name} className="w-11 h-11 rounded-xl shadow-sm border border-slate-200 group-hover:scale-105 group-hover:shadow-md transition-all" />
                         <span className={`absolute -bottom-1 -right-1 text-[7px] font-extrabold px-1 py-0.5 rounded shadow-sm text-white ${p.type === '정액제' ? 'bg-emerald-500' : 'bg-amber-500'}`}>
                           {p.type}
                         </span>
@@ -397,16 +387,8 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                 <h3 className="text-[13px] font-bold text-slate-700 mb-2 px-1">주요 출연진</h3>
                 <div className="flex gap-3 overflow-x-auto custom-scrollbar pb-2 px-1">
                   {cast.map(person => (
-                    <div 
-                      key={person.id} 
-                      onClick={() => handlePersonClick(person)}
-                      className="flex flex-col items-center shrink-0 w-16 cursor-pointer hover:opacity-75 transition-opacity"
-                    >
-                      {person.profile_path ? (
-                        <img src={`https://image.tmdb.org/t/p/w200${person.profile_path}`} alt={person.name} className="w-12 h-12 rounded-full object-cover shadow-sm mb-1.5 border border-slate-200" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200 mb-1.5 text-slate-300"><User size={20}/></div>
-                      )}
+                    <div key={person.id} onClick={() => handlePersonClick(person)} className="flex flex-col items-center shrink-0 w-16 cursor-pointer hover:opacity-75 transition-opacity">
+                      {person.profile_path ? <img src={`https://image.tmdb.org/t/p/w200${person.profile_path}`} alt={person.name} className="w-12 h-12 rounded-full object-cover shadow-sm mb-1.5 border border-slate-200" /> : <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200 mb-1.5 text-slate-300"><User size={20}/></div>}
                       <p className="text-[10px] font-extrabold text-slate-700 text-center line-clamp-1 w-full">{person.name}</p>
                       <p className="text-[9px] text-slate-400 text-center line-clamp-1 w-full">{person.character}</p>
                     </div>
@@ -420,16 +402,8 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                 <h3 className="text-[13px] font-bold text-slate-700 mb-2 px-1">시리즈 및 추천 영화</h3>
                 <div className="flex gap-3 overflow-x-auto custom-scrollbar pb-2 px-1">
                   {similarMovies.map(m => (
-                    <div 
-                      key={m.id} 
-                      className="flex flex-col items-center shrink-0 w-20 cursor-pointer hover:opacity-75 transition-opacity"
-                      onClick={() => onSimilarMovieClick && onSimilarMovieClick(m)}
-                    >
-                      {m.poster_path ? (
-                        <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} className="w-20 h-28 object-cover rounded-lg shadow-sm mb-1.5 border border-slate-200" />
-                      ) : (
-                        <div className="w-20 h-28 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200 mb-1.5 text-slate-300"><Film size={24}/></div>
-                      )}
+                    <div key={m.id} className="flex flex-col items-center shrink-0 w-20 cursor-pointer hover:opacity-75 transition-opacity" onClick={() => onSimilarMovieClick && onSimilarMovieClick(m)}>
+                      {m.poster_path ? <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} className="w-20 h-28 object-cover rounded-lg shadow-sm mb-1.5 border border-slate-200" /> : <div className="w-20 h-28 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200 mb-1.5 text-slate-300"><Film size={24}/></div>}
                       <p className="text-[10px] font-extrabold text-slate-700 text-center line-clamp-1 w-full">{m.title}</p>
                     </div>
                   ))}
@@ -505,9 +479,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                                       }}>
                                       <div className="relative">
                                         <Star size={14} className="text-slate-200 fill-slate-50" />
-                                        {(isFull || isHalf) && (
-                                          <div className="absolute top-0 left-0 overflow-hidden pointer-events-none" style={{ width: isHalf ? '50%' : '100%' }}><Star size={14} className="fill-amber-400 text-amber-400" /></div>
-                                        )}
+                                        {(isFull || isHalf) && (<div className="absolute top-0 left-0 overflow-hidden pointer-events-none" style={{ width: isHalf ? '50%' : '100%' }}><Star size={14} className="fill-amber-400 text-amber-400" /></div>)}
                                       </div>
                                     </div>
                                   );
@@ -574,9 +546,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                                         <button onClick={() => submitEditReply(rev, reply)} className="text-[9px] text-white px-1.5 py-0.5 bg-indigo-600 rounded font-bold">수정</button>
                                       </div>
                                     </div>
-                                  ) : (
-                                    <p className="text-[11px] text-slate-600 leading-snug">{reply?.text}</p>
-                                  )}
+                                  ) : (<p className="text-[11px] text-slate-600 leading-snug">{reply?.text}</p>)}
                                 </div>
                               );
                             })}
@@ -601,9 +571,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                 <button onClick={handleCancelSubInputs} className="text-[11px] font-extrabold bg-slate-200 text-slate-600 px-2.5 py-1.5 rounded-lg hover:bg-slate-300 transition-colors whitespace-nowrap">작성 취소</button>
               </div>
             ) : !user ? (
-              <div className="flex flex-col items-center justify-center p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <p className="text-[13px] font-bold text-slate-600 mb-2">리뷰를 작성하려면 로그인이 필요합니다.</p>
-              </div>
+              <div className="flex flex-col items-center justify-center p-3 bg-slate-50 rounded-xl border border-slate-200"><p className="text-[13px] font-bold text-slate-600 mb-2">리뷰를 작성하려면 로그인이 필요합니다.</p></div>
             ) : (
               <>
                 <div className="flex items-center gap-1 mb-2 px-1">
@@ -619,11 +587,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                           }}>
                           <div className="relative">
                             <Star size={20} className="text-slate-200 fill-slate-50 drop-shadow-sm" />
-                            {(isFull || isHalf) && (
-                              <div className="absolute top-0 left-0 overflow-hidden pointer-events-none" style={{ width: isHalf ? '50%' : '100%' }}>
-                                <Star size={20} className="fill-amber-400 text-amber-400 drop-shadow-sm" />
-                              </div>
-                            )}
+                            {(isFull || isHalf) && (<div className="absolute top-0 left-0 overflow-hidden pointer-events-none" style={{ width: isHalf ? '50%' : '100%' }}><Star size={20} className="fill-amber-400 text-amber-400 drop-shadow-sm" /></div>)}
                           </div>
                         </div>
                       );
@@ -650,18 +614,9 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
       {showTrailer && trailerKey && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
           <div className="w-full max-w-3xl bg-black rounded-2xl overflow-hidden relative shadow-2xl border border-slate-800">
-            <button onClick={() => setShowTrailer(false)} className="absolute -top-10 right-0 text-white p-2 hover:text-red-500 transition-colors">
-              <X size={28} />
-            </button>
+            <button onClick={() => setShowTrailer(false)} className="absolute -top-10 right-0 text-white p-2 hover:text-red-500 transition-colors"><X size={28} /></button>
             <div className="relative pt-[56.25%] w-full bg-black">
-              <iframe 
-                className="absolute inset-0 w-full h-full"
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&rel=0`} 
-                title="YouTube video player"
-                frameBorder="0" 
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-                allowFullScreen
-              ></iframe>
+              <iframe className="absolute inset-0 w-full h-full" src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&rel=0`} title="YouTube video player" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen></iframe>
             </div>
           </div>
         </div>
@@ -681,11 +636,7 @@ export default function MovieDetailModal({ movie, user, onClose, showToast, onSi
                 <div className="grid grid-cols-3 gap-3">
                   {personMovies.map(m => (
                     <div key={m.id} className="flex flex-col items-center">
-                      {m.poster_path ? (
-                        <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} className="w-full h-32 object-cover rounded-lg shadow-sm mb-1.5 border border-slate-200" />
-                      ) : (
-                        <div className="w-full h-32 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200 mb-1.5 text-slate-300"><Film size={24}/></div>
-                      )}
+                      {m.poster_path ? <img src={`https://image.tmdb.org/t/p/w200${m.poster_path}`} alt={m.title} className="w-full h-32 object-cover rounded-lg shadow-sm mb-1.5 border border-slate-200" /> : <div className="w-full h-32 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200 mb-1.5 text-slate-300"><Film size={24}/></div>}
                       <p className="text-[11px] font-extrabold text-slate-700 text-center line-clamp-1 w-full">{m.title}</p>
                       <p className="text-[9px] text-slate-400 text-center">{m.release_date?.split('-')[0] || '미정'}</p>
                     </div>
