@@ -3,12 +3,12 @@
   "name": "MovieReview - 영화 별점 리뷰 플랫폼",
   "icons": [
     {
-      "src": "icon.png",
+      "src": "icon-192x192.png",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "icon.png",
+      "src": "icon-512x512.png",
       "type": "image/png",
       "sizes": "512x512"
     }
